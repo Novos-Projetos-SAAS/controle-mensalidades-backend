@@ -1,0 +1,43 @@
+{
+    "name": "controle-mensalidades-backend",
+    "version": "1.0.0",
+    "description": "",
+    "main": "index.js",
+    "scripts": {
+        "dev": "tsx watch src/server.ts",
+        "build": "tsc",
+        "start": "node dist/server.js",
+        "typecheck": "tsc --noEmit",
+        "test": "node --import tsx --test tests/**/*.test.ts",
+        "lint": "eslint src tests",
+        "lint:fix": "eslint src tests --fix",
+        "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
+        "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\""
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "type": "module",
+    "dependencies": {
+        "chalk": "^6.0.0",
+        "cors": "^2.8.6",
+        "dotenv": "^17.4.2",
+        "express": "^5.2.1",
+        "log-symbols": "^7.0.1",
+        "zod": "^4.5.4"
+    },
+    "devDependencies": {
+        "@eslint/js": "^10.0.1",
+        "@types/cors": "^2.8.19",
+        "@types/express": "^5.0.6",
+        "@types/node": "^26.4.1",
+        "@types/supertest": "^7.2.1",
+        "eslint": "^10.9.1",
+        "eslint-config-prettier": "^10.1.8",
+        "prettier": "^3.9.6",
+        "supertest": "^7.2.2",
+        "tsx": "^4.23.13",
+        "typescript": "5.9",
+        "typescript-eslint": "^8.69.0"
+    }
+}
