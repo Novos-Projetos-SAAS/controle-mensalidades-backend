@@ -1,11 +1,11 @@
 import type { Request, Response, NextFunction } from 'express';
 
-import saudeService from './saude.service.js';
+import healthService from './health.service.js';
 
-class SaudeController {
+class HealthController {
     consultar(_req: Request, res: Response, next: NextFunction) {
         try {
-            const resultado = saudeService.executar();
+            const resultado = healthService.executar();
 
             return res.status(200).json(resultado);
         } catch (error) {
@@ -14,4 +14,4 @@ class SaudeController {
     }
 }
 
-export default new SaudeController();
+export default new HealthController();

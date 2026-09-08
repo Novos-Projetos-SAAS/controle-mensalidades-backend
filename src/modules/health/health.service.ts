@@ -1,4 +1,4 @@
-class SaudeService {
+class HealthService {
     executar() {
         return {
             situacao: 'OK',
@@ -7,4 +7,4 @@ class SaudeService {
     }
 }
 
-export default new SaudeService();
+export default new HealthService();

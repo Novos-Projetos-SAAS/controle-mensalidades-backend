@@ -19,7 +19,7 @@ const openApiDocument = {
         },
     ],
     paths: {
-        '/saude': {
+        '/health': {
             get: {
                 tags: ['Saúde'],
                 summary: 'Consultar saúde da API',

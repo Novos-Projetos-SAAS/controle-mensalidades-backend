@@ -22,7 +22,7 @@ Versão atual:
 Exemplo:
 
 ```text
-GET /api/v1/saude
+GET /api/v1/health
 ```
 
 Mudanças compatíveis permanecem na mesma versão. Uma nova versão (`/api/v2`) só deve ser criada quando houver mudança incompatível no contrato HTTP.
@@ -36,8 +36,8 @@ A especificação oficial da API usa OpenAPI 3.1.
 Com a aplicação em execução:
 
 ```text
-Swagger UI:     http://localhost:3000/docs
-OpenAPI JSON:   http://localhost:3000/docs/openapi.json
+Swagger UI:     http://localhost:3333/docs
+OpenAPI JSON:   http://localhost:3333/docs/openapi.json
 ```
 
 A documentação deve evoluir junto com cada endpoint. Um endpoint novo só é considerado pronto quando rota, validação, testes e contrato OpenAPI estiverem atualizados.
