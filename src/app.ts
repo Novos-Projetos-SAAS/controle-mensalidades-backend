@@ -1,6 +1,7 @@
 import cors from 'cors';
 import express from 'express';
 
+import docsRoutes from './documentation/docs.routes.js';
 import errorHandler from './middlewares/errorHandler.middleware.js';
 import requestId from './middlewares/requestId.middleware.js';
 
@@ -16,6 +17,7 @@ app.use(cors());
 
 app.use(express.json());
 
+app.use('/docs', docsRoutes);
 app.use('/api', routes);
 
 app.use((req, _res, next) => {
