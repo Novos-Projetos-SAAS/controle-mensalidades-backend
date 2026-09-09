@@ -10,6 +10,14 @@ const envSchema = z.object({
     DATABASE_URL: z.string().min(1).optional(),
 
     DATABASE_URL_TEST: z.string().min(1).optional(),
+
+    JWT_SECRET: z.string().min(1).optional(),
+
+    JWT_SECRET_TEST: z.string().min(1).optional(),
+
+    JWT_EXPIRES_IN: z
+        .enum(['1h', '8h', '12h', '1d', '7d', '30d'])
+        .default('8h'),
 });
 
 export function validarEnv(variaveis: NodeJS.ProcessEnv) {

@@ -7,6 +7,7 @@ import request from 'supertest';
 
 import app from '../../../src/app.js';
 import connection from '../../../src/database/connection.js';
+import { env } from '../../../src/configuration/env.js';
 
 const organizacaoId = crypto.randomUUID();
 const outraOrganizacaoId = crypto.randomUUID();
@@ -23,7 +24,7 @@ function gerarToken(usuario: string) {
 
     return jwt.sign({}, jwtSecret, {
         subject: usuario,
-        expiresIn: '1h',
+        expiresIn: env.JWT_EXPIRES_IN,
     });
 }
 
