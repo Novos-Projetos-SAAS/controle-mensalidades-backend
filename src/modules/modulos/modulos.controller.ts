@@ -3,9 +3,7 @@ import type { NextFunction, Request, Response } from 'express';
 import modulosService from './modulos.service.js';
 
 class ModulosController {
-
     async listarHabilitadosPorOrganizacao(req: Request, res: Response, next: NextFunction) {
-
         try {
             const organizacaoId = req.auth?.organizacaoId;
 
@@ -20,7 +18,6 @@ class ModulosController {
             next(error);
         }
     }
-
 }
 
 export default new ModulosController();

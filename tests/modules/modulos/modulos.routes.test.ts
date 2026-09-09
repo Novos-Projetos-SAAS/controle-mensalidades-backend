@@ -1,7 +1,4 @@
-import test, {
-    after,
-    before,
-} from 'node:test';
+import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 
@@ -25,14 +22,10 @@ function gerarToken(usuario: string) {
 
     assert.ok(jwtSecret);
 
-    return jwt.sign(
-        {},
-        jwtSecret,
-        {
-            subject: usuario,
-            expiresIn: '1h',
-        },
-    );
+    return jwt.sign({}, jwtSecret, {
+        subject: usuario,
+        expiresIn: '1h',
+    });
 }
 
 before(async () => {
@@ -159,26 +152,17 @@ after(async () => {
         })
         .del();
 
-    await connection('organizacoes')
-        .whereIn('id', [
-            organizacaoId,
-            outraOrganizacaoId,
-        ])
-        .del();
+    await connection('organizacoes').whereIn('id', [organizacaoId, outraOrganizacaoId]).del();
 
     await connection.destroy();
 });
 
 test('GET /api/v1/modulos deve exigir autenticação', async () => {
-    const response = await request(app)
-        .get('/api/v1/modulos');
+    const response = await request(app).get('/api/v1/modulos');
 
     assert.equal(response.status, 401);
 
-    assert.equal(
-        response.body.mensagem,
-        'Autenticação necessária.',
-    );
+    assert.equal(response.body.mensagem, 'Autenticação necessária.');
 });
 
 test('GET /api/v1/modulos deve rejeitar token inválido', async () => {
@@ -189,10 +173,7 @@ test('GET /api/v1/modulos deve rejeitar token inválido', async () => {
 
     assert.equal(response.status, 401);
 
-    assert.equal(
-        response.body.mensagem,
-        'Token de autenticação inválido.',
-    );
+    assert.equal(response.body.mensagem, 'Token de autenticação inválido.');
 });
 
 test('GET /api/v1/modulos deve rejeitar token expirado', async () => {
@@ -200,14 +181,10 @@ test('GET /api/v1/modulos deve rejeitar token expirado', async () => {
 
     assert.ok(jwtSecret);
 
-    const token = jwt.sign(
-        {},
-        jwtSecret,
-        {
-            subject: usuarioId,
-            expiresIn: '-1s',
-        },
-    );
+    const token = jwt.sign({}, jwtSecret, {
+        subject: usuarioId,
+        expiresIn: '-1s',
+    });
 
     const response = await request(app)
         .get('/api/v1/modulos')
@@ -216,25 +193,17 @@ test('GET /api/v1/modulos deve rejeitar token expirado', async () => {
 
     assert.equal(response.status, 401);
 
-    assert.equal(
-        response.body.mensagem,
-        'Sessão expirada.',
-    );
+    assert.equal(response.body.mensagem, 'Sessão expirada.');
 });
 
 test('GET /api/v1/modulos deve exigir organização', async () => {
     const token = gerarToken(usuarioId);
 
-    const response = await request(app)
-        .get('/api/v1/modulos')
-        .set('Cookie', `token=${token}`);
+    const response = await request(app).get('/api/v1/modulos').set('Cookie', `token=${token}`);
 
     assert.equal(response.status, 400);
 
-    assert.equal(
-        response.body.mensagem,
-        'Organização não informada.',
-    );
+    assert.equal(response.body.mensagem, 'Organização não informada.');
 });
 
 test('GET /api/v1/modulos deve rejeitar organização inválida', async () => {
@@ -247,10 +216,7 @@ test('GET /api/v1/modulos deve rejeitar organização inválida', async () => {
 
     assert.equal(response.status, 400);
 
-    assert.equal(
-        response.body.mensagem,
-        'Organização inválida.',
-    );
+    assert.equal(response.body.mensagem, 'Organização inválida.');
 });
 
 test('GET /api/v1/modulos deve impedir acesso a organização não vinculada ao usuário', async () => {
@@ -259,17 +225,11 @@ test('GET /api/v1/modulos deve impedir acesso a organização não vinculada ao 
     const response = await request(app)
         .get('/api/v1/modulos')
         .set('Cookie', `token=${token}`)
-        .set(
-            'x-organizacao-id',
-            outraOrganizacaoId,
-        );
+        .set('x-organizacao-id', outraOrganizacaoId);
 
     assert.equal(response.status, 403);
 
-    assert.equal(
-        response.body.mensagem,
-        'Usuário não autorizado nesta organização.',
-    );
+    assert.equal(response.body.mensagem, 'Usuário não autorizado nesta organização.');
 });
 
 test('GET /api/v1/modulos deve listar módulos habilitados da organização', async () => {
@@ -278,38 +238,23 @@ test('GET /api/v1/modulos deve listar módulos habilitados da organização', as
     const response = await request(app)
         .get('/api/v1/modulos')
         .set('Cookie', `token=${token}`)
-        .set(
-            'x-organizacao-id',
-            organizacaoId,
-        );
+        .set('x-organizacao-id', organizacaoId);
 
     assert.equal(response.status, 200);
 
-    assert.equal(
-        response.body.status,
-        'success',
-    );
+    assert.equal(response.body.status, 'success');
 
-    assert.equal(
-        response.body.message,
-        'Módulos listados com sucesso.',
-    );
+    assert.equal(response.body.message, 'Módulos listados com sucesso.');
 
-    assert.ok(
-        Array.isArray(response.body.data),
-    );
+    assert.ok(Array.isArray(response.body.data));
 
     const modulo = response.body.data.find(
-        (item: { id: string }) =>
-            item.id === moduloHabilitadoId,
+        (item: { id: string }) => item.id === moduloHabilitadoId,
     );
 
     assert.ok(modulo);
 
-    assert.equal(
-        modulo.nome,
-        'Agenda',
-    );
+    assert.equal(modulo.nome, 'Agenda');
 });
 
 test('GET /api/v1/modulos não deve retornar módulo desabilitado para a organização', async () => {
@@ -318,22 +263,15 @@ test('GET /api/v1/modulos não deve retornar módulo desabilitado para a organiz
     const response = await request(app)
         .get('/api/v1/modulos')
         .set('Cookie', `token=${token}`)
-        .set(
-            'x-organizacao-id',
-            organizacaoId,
-        );
+        .set('x-organizacao-id', organizacaoId);
 
     assert.equal(response.status, 200);
 
     const modulo = response.body.data.find(
-        (item: { id: string }) =>
-            item.id === moduloDesabilitadoId,
+        (item: { id: string }) => item.id === moduloDesabilitadoId,
     );
 
-    assert.equal(
-        modulo,
-        undefined,
-    );
+    assert.equal(modulo, undefined);
 });
 
 test('GET /api/v1/modulos não deve retornar módulo inativo', async () => {
@@ -342,22 +280,13 @@ test('GET /api/v1/modulos não deve retornar módulo inativo', async () => {
     const response = await request(app)
         .get('/api/v1/modulos')
         .set('Cookie', `token=${token}`)
-        .set(
-            'x-organizacao-id',
-            organizacaoId,
-        );
+        .set('x-organizacao-id', organizacaoId);
 
     assert.equal(response.status, 200);
 
-    const modulo = response.body.data.find(
-        (item: { id: string }) =>
-            item.id === moduloInativoId,
-    );
+    const modulo = response.body.data.find((item: { id: string }) => item.id === moduloInativoId);
 
-    assert.equal(
-        modulo,
-        undefined,
-    );
+    assert.equal(modulo, undefined);
 });
 
 test('GET /api/v1/modulos não deve vazar módulos habilitados somente para outra organização', async () => {
@@ -366,20 +295,13 @@ test('GET /api/v1/modulos não deve vazar módulos habilitados somente para outr
     const response = await request(app)
         .get('/api/v1/modulos')
         .set('Cookie', `token=${token}`)
-        .set(
-            'x-organizacao-id',
-            organizacaoId,
-        );
+        .set('x-organizacao-id', organizacaoId);
 
     assert.equal(response.status, 200);
 
     const modulo = response.body.data.find(
-        (item: { id: string }) =>
-            item.id === moduloOutraOrganizacaoId,
+        (item: { id: string }) => item.id === moduloOutraOrganizacaoId,
     );
 
-    assert.equal(
-        modulo,
-        undefined,
-    );
+    assert.equal(modulo, undefined);
 });

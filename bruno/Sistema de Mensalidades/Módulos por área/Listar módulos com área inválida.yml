@@ -1,0 +1,20 @@
+info:
+  name: Listar módulos com área inválida
+  type: http
+  seq: 4
+
+http:
+  method: GET
+  url: "{{baseUrl}}/areas-negocio/teste/modulos"
+  headers:
+    - name: x-organizacao-id
+      value: 1248c1f9-4bb3-4964-8c49-def6a0881a28
+    - name: Cookie
+      value: token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE3ODg5ODY5OTIsImV4cCI6MTc4ODk5MDU5Miwic3ViIjoiZGI1M2Y1YTEtZjE2ZS00ZWUxLTg1OWMtZWVlOTY2NDU0ZjU3In0.P9MS-c4HsEu9YmsYp2MfpjwHg1WSkQ7WtyRg06nK_io
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

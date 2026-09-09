@@ -15,9 +15,7 @@ const envSchema = z.object({
 
     JWT_SECRET_TEST: z.string().min(1).optional(),
 
-    JWT_EXPIRES_IN: z
-        .enum(['1h', '8h', '12h', '1d', '7d', '30d'])
-        .default('8h'),
+    JWT_EXPIRES_IN: z.enum(['1h', '8h', '12h', '1d', '7d', '30d']).default('8h'),
 });
 
 export function validarEnv(variaveis: NodeJS.ProcessEnv) {
