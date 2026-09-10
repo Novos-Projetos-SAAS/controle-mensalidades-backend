@@ -8,6 +8,7 @@ import request from 'supertest';
 import app from '../../../src/app.js';
 import { env } from '../../../src/configuration/env.js';
 import connection from '../../../src/database/connection.js';
+import auditoriaService from '../../../src/modules/auditoria/auditoria.service.js';
 import { hashPassword } from '../../../src/utils/senha.utils.js';
 
 const organizacaoAId = crypto.randomUUID();
@@ -49,9 +50,20 @@ const duracaoCookiePorJwt = {
 } as const;
 
 async function limparDadosTeste() {
+    await connection('registros_auditoria').whereIn('recurso_id', usuariosIds).del();
     await connection('usuarios_organizacoes').whereIn('usuario_id', usuariosIds).del();
     await connection('usuarios').whereIn('id', usuariosIds).del();
     await connection('organizacoes').whereIn('id', organizacoesIds).del();
+}
+
+function obterJwtSecretTeste(): string {
+    const jwtSecret = env.JWT_SECRET;
+
+    if (!jwtSecret) {
+        throw new Error('JWT_SECRET não definida no ambiente de teste.');
+    }
+
+    return jwtSecret;
 }
 
 before(async () => {
@@ -588,6 +600,164 @@ test('GET /api/v1/auth/me deve rejeitar usuário sem organização ativa', async
     assert.equal(response.status, 403);
     assert.equal(response.body.codigo, 'USUARIO_SEM_ORGANIZACAO_ATIVA');
     assert.equal(response.body.mensagem, 'Usuário sem organização ativa.');
+});
+
+test('POST /api/v1/auth/logout deve limpar o cookie, encerrar /me e registrar auditoria', async () => {
+    const agent = request.agent(app);
+
+    const loginResponse = await agent.post('/api/v1/auth/login').send({
+        email: emailUsuarioAtivo,
+        senha: senhaValida,
+    });
+
+    assert.equal(loginResponse.status, 200);
+
+    const logoutResponse = await agent.post('/api/v1/auth/logout');
+
+    assert.equal(logoutResponse.status, 200);
+    assert.equal(logoutResponse.body.status, 'success');
+    assert.equal(logoutResponse.body.message, 'Logout realizado com sucesso.');
+    assert.equal(logoutResponse.body.data, null);
+    assert.equal('token' in logoutResponse.body, false);
+    assert.equal('jwt' in logoutResponse.body, false);
+
+    const cookies = logoutResponse.headers['set-cookie'];
+
+    assert.ok(Array.isArray(cookies));
+
+    const tokenCookie = cookies.find((cookie) => cookie.startsWith('token='));
+
+    assert.ok(tokenCookie);
+    assert.match(tokenCookie, /; Path=\//);
+    assert.match(tokenCookie, /; HttpOnly/);
+    assert.match(tokenCookie, /; SameSite=Lax/);
+    assert.match(tokenCookie, /; Expires=/);
+
+    const meResponse = await agent.get('/api/v1/auth/me');
+
+    assert.equal(meResponse.status, 401);
+    assert.equal(meResponse.body.codigo, 'TOKEN_AUSENTE');
+
+    const registro = await connection('registros_auditoria')
+        .select(
+            'usuario_id',
+            'organizacao_id',
+            'area_negocio_id',
+            'acao',
+            'recurso',
+            'recurso_id',
+            'dados_contexto',
+        )
+        .where('acao', 'AUTH.LOGOUT')
+        .andWhere('recurso_id', usuarioAtivoId)
+        .orderBy('criado_em', 'desc')
+        .first();
+
+    assert.ok(registro);
+    assert.equal(registro.usuario_id, usuarioAtivoId);
+    assert.equal(registro.organizacao_id, null);
+    assert.equal(registro.area_negocio_id, null);
+    assert.equal(registro.acao, 'AUTH.LOGOUT');
+    assert.equal(registro.recurso, 'AUTENTICACAO');
+    assert.equal(registro.recurso_id, usuarioAtivoId);
+    assert.deepEqual(registro.dados_contexto, {
+        requestId: logoutResponse.headers['x-request-id'],
+    });
+    assert.equal('token' in registro.dados_contexto, false);
+    assert.equal('cookie' in registro.dados_contexto, false);
+    assert.equal('senha' in registro.dados_contexto, false);
+});
+
+test('POST /api/v1/auth/logout deve ser idempotente sem cookie ou headers de contexto', async () => {
+    const response = await request(app).post('/api/v1/auth/logout');
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.status, 'success');
+    assert.equal(response.body.message, 'Logout realizado com sucesso.');
+    assert.equal(response.body.data, null);
+    assert.equal('token' in response.body, false);
+
+    const cookies = response.headers['set-cookie'];
+
+    assert.ok(Array.isArray(cookies));
+    assert.ok(cookies.some((cookie) => cookie.startsWith('token=')));
+});
+
+test('POST /api/v1/auth/logout deve aceitar token inválido sem registrar identidade falsa', async () => {
+    const [{ total: totalAntes }] = await connection('registros_auditoria')
+        .where('acao', 'AUTH.LOGOUT')
+        .count('* as total');
+
+    const response = await request(app)
+        .post('/api/v1/auth/logout')
+        .set('Cookie', ['token=token-invalido']);
+
+    const [{ total: totalDepois }] = await connection('registros_auditoria')
+        .where('acao', 'AUTH.LOGOUT')
+        .count('* as total');
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.status, 'success');
+    assert.equal(response.body.data, null);
+    assert.equal(totalDepois, totalAntes);
+});
+
+test('POST /api/v1/auth/logout deve aceitar token expirado sem registrar identidade falsa', async () => {
+    const jwtSecret = obterJwtSecretTeste();
+
+    const tokenExpirado = jwt.sign({}, jwtSecret, {
+        subject: usuarioAtivoId,
+        expiresIn: -1,
+    });
+
+    const [{ total: totalAntes }] = await connection('registros_auditoria')
+        .where('acao', 'AUTH.LOGOUT')
+        .count('* as total');
+
+    const response = await request(app)
+        .post('/api/v1/auth/logout')
+        .set('Cookie', [`token=${tokenExpirado}`]);
+
+    const [{ total: totalDepois }] = await connection('registros_auditoria')
+        .where('acao', 'AUTH.LOGOUT')
+        .count('* as total');
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.status, 'success');
+    assert.equal(response.body.data, null);
+    assert.equal(totalDepois, totalAntes);
+});
+
+test('POST /api/v1/auth/logout deve permanecer disponível quando a auditoria falhar', async () => {
+    const jwtSecret = obterJwtSecretTeste();
+
+    const token = jwt.sign({}, jwtSecret, {
+        subject: usuarioAtivoId,
+        expiresIn: '1h',
+    });
+
+    const registrarOriginal = auditoriaService.registrar;
+    const consoleErrorOriginal = console.error;
+
+    auditoriaService.registrar = async () => {
+        throw new Error('Falha simulada de auditoria.');
+    };
+
+    console.error = () => undefined;
+
+    try {
+        const response = await request(app)
+            .post('/api/v1/auth/logout')
+            .set('Cookie', [`token=${token}`]);
+
+        assert.equal(response.status, 200);
+        assert.equal(response.body.status, 'success');
+        assert.equal(response.body.message, 'Logout realizado com sucesso.');
+        assert.equal(response.body.data, null);
+    } finally {
+        auditoriaService.registrar = registrarOriginal;
+        console.error = consoleErrorOriginal;
+    }
 });
 
 test('POST /api/v1/auth/login deve limitar tentativas inválidas repetidas', async () => {

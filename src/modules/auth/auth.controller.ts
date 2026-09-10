@@ -85,6 +85,46 @@ class AuthController {
             next(error);
         }
     }
+
+    async logout(req: Request, res: Response, next: NextFunction) {
+        try {
+            const usuarioId = await authService.identificarUsuarioPorToken(req.cookies?.token);
+
+            res.clearCookie('token', opcoesCookieAuth);
+
+            if (usuarioId) {
+                try {
+                    const userAgent = req.get('user-agent');
+                    const ip = req.ip;
+
+                    await auditoriaService.registrar({
+                        usuarioId,
+                        acao: 'AUTH.LOGOUT',
+                        recurso: 'AUTENTICACAO',
+                        recursoId: usuarioId,
+                        dadosContexto: {
+                            requestId: req.requestId,
+                        },
+                        ...(ip ? { ip } : {}),
+                        ...(userAgent ? { userAgent } : {}),
+                    });
+                } catch (auditoriaError) {
+                    console.error(
+                        `Falha ao registrar auditoria de logout. Request ID: ${req.requestId}`,
+                        auditoriaError,
+                    );
+                }
+            }
+
+            return res.status(200).json({
+                status: 'success',
+                message: 'Logout realizado com sucesso.',
+                data: null,
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
 }
 
 export default new AuthController();

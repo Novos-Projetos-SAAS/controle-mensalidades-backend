@@ -14,4 +14,7 @@ authRoutes.post('/login', limitadorLogin, authController.login);
 // ROTA GET /me
 authRoutes.get('/me', verifyUser, authController.me);
 
+// ROTA POST /logout
+authRoutes.post('/logout', authController.logout);
+
 export default authRoutes;

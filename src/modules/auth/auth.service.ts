@@ -1,4 +1,5 @@
 import jwt, { type SignOptions } from 'jsonwebtoken';
+import { z } from 'zod';
 
 import { env } from '../../configuration/env.js';
 import AppError from '../../shared/errors/AppError.js';
@@ -9,6 +10,8 @@ import { validarLogin } from './auth.validator.js';
 
 const erroCredenciaisInvalidas = () =>
     new AppError('Email ou senha inválidos.', 401, 'CREDENCIAIS_INVALIDAS');
+
+const uuidSchema = z.string().uuid();
 
 class AuthService {
     async login(entrada: unknown) {
@@ -83,6 +86,38 @@ class AuthService {
             usuario,
             organizacoes,
         };
+    }
+
+    async identificarUsuarioPorToken(token: unknown) {
+        if (typeof token !== 'string' || !token) {
+            return undefined;
+        }
+
+        const jwtSecret = env.JWT_SECRET;
+
+        if (!jwtSecret) {
+            return undefined;
+        }
+
+        try {
+            const payload = jwt.verify(token, jwtSecret);
+
+            if (typeof payload === 'string' || !payload.sub) {
+                return undefined;
+            }
+
+            const resultadoUsuarioId = uuidSchema.safeParse(payload.sub);
+
+            if (!resultadoUsuarioId.success) {
+                return undefined;
+            }
+
+            const usuario = await authRepository.buscarUsuarioAtivoPorId(resultadoUsuarioId.data);
+
+            return usuario?.id;
+        } catch {
+            return undefined;
+        }
     }
 }
 
