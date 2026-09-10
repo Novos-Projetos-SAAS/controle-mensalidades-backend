@@ -6,6 +6,7 @@ import areasNegocioRoutes from '../../modules/areas_negocio/areas_negocio.routes
 import modulosRoutes from '../../modules/modulos/modulos.routes.js';
 import areasModulosRoutes from '../../modules/areas_modulos/areas_modulos.routes.js';
 import contextoRoutes from '../../modules/contexto/contexto.routes.js';
+import usuariosRoutes from '../../modules/usuarios/usuarios.routes.js';
 
 const v1Routes = Router();
 
@@ -15,5 +16,6 @@ v1Routes.use('/areas-negocio', areasNegocioRoutes);
 v1Routes.use('/modulos', modulosRoutes);
 v1Routes.use('/areas-negocio', areasModulosRoutes);
 v1Routes.use('/contexto', contextoRoutes);
+v1Routes.use('/usuarios', usuariosRoutes);
 
 export default v1Routes;

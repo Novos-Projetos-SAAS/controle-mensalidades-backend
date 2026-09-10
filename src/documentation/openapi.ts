@@ -17,6 +17,10 @@ const openApiDocument = {
             name: 'Saúde',
             description: 'Monitoramento da aplicação.',
         },
+        {
+            name: 'Usuários',
+            description: 'Gestão dos vínculos de usuários com a organização atual.',
+        },
     ],
     paths: {
         '/health': {
@@ -46,8 +50,180 @@ const openApiDocument = {
                 },
             },
         },
+        '/usuarios': {
+            post: {
+                tags: ['Usuários'],
+                summary: 'Criar usuário e vinculá-lo à organização',
+                operationId: 'criarUsuarioOrganizacao',
+                security: [{ cookieAuth: [] }],
+                parameters: [
+                    {
+                        name: 'x-organizacao-id',
+                        in: 'header',
+                        required: true,
+                        schema: {
+                            type: 'string',
+                            format: 'uuid',
+                        },
+                    },
+                ],
+                requestBody: {
+                    required: true,
+                    content: {
+                        'application/json': {
+                            schema: {
+                                $ref: '#/components/schemas/CriacaoUsuarioOrganizacao',
+                            },
+                        },
+                    },
+                },
+                responses: {
+                    '201': {
+                        description: 'Usuário criado e vinculado à organização.',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    $ref: '#/components/schemas/RespostaUsuarioOrganizacao',
+                                },
+                            },
+                        },
+                    },
+                    '400': {
+                        $ref: '#/components/responses/ErroPadronizado',
+                    },
+                    '401': {
+                        $ref: '#/components/responses/ErroPadronizado',
+                    },
+                    '403': {
+                        $ref: '#/components/responses/ErroPadronizado',
+                    },
+                    '409': {
+                        $ref: '#/components/responses/ErroPadronizado',
+                    },
+                },
+            },
+            get: {
+                tags: ['Usuários'],
+                summary: 'Listar usuários da organização',
+                operationId: 'listarUsuariosOrganizacao',
+                security: [{ cookieAuth: [] }],
+                parameters: [
+                    {
+                        name: 'x-organizacao-id',
+                        in: 'header',
+                        required: true,
+                        schema: {
+                            type: 'string',
+                            format: 'uuid',
+                        },
+                    },
+                ],
+                responses: {
+                    '200': {
+                        description: 'Usuários vinculados à organização.',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    $ref: '#/components/schemas/RespostaUsuariosOrganizacao',
+                                },
+                            },
+                        },
+                    },
+                    '401': {
+                        $ref: '#/components/responses/ErroPadronizado',
+                    },
+                    '403': {
+                        $ref: '#/components/responses/ErroPadronizado',
+                    },
+                },
+            },
+        },
+        '/usuarios/{usuarioId}': {
+            patch: {
+                tags: ['Usuários'],
+                summary: 'Atualizar vínculo do usuário com a organização',
+                operationId: 'atualizarVinculoUsuarioOrganizacao',
+                security: [{ cookieAuth: [] }],
+                parameters: [
+                    {
+                        name: 'usuarioId',
+                        in: 'path',
+                        required: true,
+                        schema: {
+                            type: 'string',
+                            format: 'uuid',
+                        },
+                    },
+                    {
+                        name: 'x-organizacao-id',
+                        in: 'header',
+                        required: true,
+                        schema: {
+                            type: 'string',
+                            format: 'uuid',
+                        },
+                    },
+                ],
+                requestBody: {
+                    required: true,
+                    content: {
+                        'application/json': {
+                            schema: {
+                                $ref: '#/components/schemas/AtualizacaoVinculoUsuario',
+                            },
+                        },
+                    },
+                },
+                responses: {
+                    '200': {
+                        description: 'Vínculo atualizado com sucesso.',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    $ref: '#/components/schemas/RespostaUsuarioOrganizacao',
+                                },
+                            },
+                        },
+                    },
+                    '400': {
+                        $ref: '#/components/responses/ErroPadronizado',
+                    },
+                    '401': {
+                        $ref: '#/components/responses/ErroPadronizado',
+                    },
+                    '403': {
+                        $ref: '#/components/responses/ErroPadronizado',
+                    },
+                    '404': {
+                        $ref: '#/components/responses/ErroPadronizado',
+                    },
+                    '409': {
+                        $ref: '#/components/responses/ErroPadronizado',
+                    },
+                },
+            },
+        },
     },
     components: {
+        securitySchemes: {
+            cookieAuth: {
+                type: 'apiKey',
+                in: 'cookie',
+                name: 'token',
+            },
+        },
+        responses: {
+            ErroPadronizado: {
+                description: 'Erro padronizado da aplicação.',
+                content: {
+                    'application/json': {
+                        schema: {
+                            $ref: '#/components/schemas/ErroPadronizado',
+                        },
+                    },
+                },
+            },
+        },
         schemas: {
             RespostaSaude: {
                 type: 'object',
@@ -82,6 +258,108 @@ const openApiDocument = {
                     },
                     request_id: {
                         type: 'string',
+                    },
+                },
+            },
+            UsuarioOrganizacao: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['id', 'nome', 'email', 'perfil', 'ativo'],
+                properties: {
+                    id: {
+                        type: 'string',
+                        format: 'uuid',
+                    },
+                    nome: {
+                        type: 'string',
+                    },
+                    email: {
+                        type: 'string',
+                        format: 'email',
+                    },
+                    perfil: {
+                        type: 'string',
+                        enum: ['ADMINISTRADOR', 'OPERADOR'],
+                    },
+                    ativo: {
+                        type: 'boolean',
+                    },
+                },
+            },
+            AtualizacaoVinculoUsuario: {
+                type: 'object',
+                additionalProperties: false,
+                minProperties: 1,
+                properties: {
+                    perfil: {
+                        type: 'string',
+                        enum: ['ADMINISTRADOR', 'OPERADOR'],
+                    },
+                    ativo: {
+                        type: 'boolean',
+                    },
+                },
+            },
+            CriacaoUsuarioOrganizacao: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['nome', 'email', 'senha', 'perfil'],
+                properties: {
+                    nome: {
+                        type: 'string',
+                        maxLength: 150,
+                    },
+                    email: {
+                        type: 'string',
+                        format: 'email',
+                        maxLength: 150,
+                    },
+                    senha: {
+                        type: 'string',
+                        minLength: 12,
+                        maxLength: 128,
+                        format: 'password',
+                    },
+                    perfil: {
+                        type: 'string',
+                        enum: ['ADMINISTRADOR', 'OPERADOR'],
+                    },
+                },
+            },
+            RespostaUsuariosOrganizacao: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['status', 'message', 'data'],
+                properties: {
+                    status: {
+                        type: 'string',
+                        const: 'success',
+                    },
+                    message: {
+                        type: 'string',
+                    },
+                    data: {
+                        type: 'array',
+                        items: {
+                            $ref: '#/components/schemas/UsuarioOrganizacao',
+                        },
+                    },
+                },
+            },
+            RespostaUsuarioOrganizacao: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['status', 'message', 'data'],
+                properties: {
+                    status: {
+                        type: 'string',
+                        const: 'success',
+                    },
+                    message: {
+                        type: 'string',
+                    },
+                    data: {
+                        $ref: '#/components/schemas/UsuarioOrganizacao',
                     },
                 },
             },
