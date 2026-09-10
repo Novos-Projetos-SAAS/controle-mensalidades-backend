@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser';
 
 import docsRoutes from './documentation/docs.routes.js';
 import errorHandler from './middlewares/errorHandler.middleware.js';
+import { limitadorGeral } from './middlewares/rateLimit.middleware.js';
 import requestId from './middlewares/requestId.middleware.js';
 
 import routes from './routes/index.js';
@@ -20,7 +21,7 @@ app.use(express.json());
 
 app.use(cookieParser());
 app.use('/docs', docsRoutes);
-app.use('/api', routes);
+app.use('/api', limitadorGeral, routes);
 
 app.use((req, _res, next) => {
     next(

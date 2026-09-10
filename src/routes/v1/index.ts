@@ -1,5 +1,6 @@
 import { Router } from 'express';
 
+import authRoutes from '../../modules/auth/auth.routes.js';
 import healthRoutes from '../../modules/health/health.routes.js';
 import areasNegocioRoutes from '../../modules/areas_negocio/areas_negocio.routes.js';
 import modulosRoutes from '../../modules/modulos/modulos.routes.js';
@@ -8,6 +9,7 @@ import contextoRoutes from '../../modules/contexto/contexto.routes.js';
 
 const v1Routes = Router();
 
+v1Routes.use('/auth', authRoutes);
 v1Routes.use('/health', healthRoutes);
 v1Routes.use('/areas-negocio', areasNegocioRoutes);
 v1Routes.use('/modulos', modulosRoutes);

@@ -10,9 +10,19 @@ export function adicionarAtualizadoEm(table, knex) {
     table.timestamp('atualizado_em', { useTz: true }).notNullable().defaultTo(knex.fn.now());
 }
 
+export function adicionarDeletadoEm(table) {
+    table.timestamp('deletado_em', { useTz: true });
+}
+
 export function adicionarTimestamps(table, knex) {
     adicionarCriadoEm(table, knex);
     adicionarAtualizadoEm(table, knex);
+}
+
+export function adicionarCamposAuditoria(table, knex) {
+    adicionarCriadoEm(table, knex);
+    adicionarAtualizadoEm(table, knex);
+    adicionarDeletadoEm(table);
 }
 
 export function adicionarFk(

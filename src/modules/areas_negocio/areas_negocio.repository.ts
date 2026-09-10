@@ -7,6 +7,7 @@ class AreasNegocioRepository {
                 organizacao_id: organizacaoId,
                 ativo: true,
             })
+            .whereNull('deletado_em')
             .orderBy('nome', 'asc')
             .select('*');
     }

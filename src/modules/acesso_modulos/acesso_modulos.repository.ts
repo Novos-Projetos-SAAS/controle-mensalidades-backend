@@ -13,12 +13,16 @@ class AcessoModulosRepository {
             .select('m.id', 'm.codigo', 'm.nome')
             .where('m.codigo', codigoModulo)
             .andWhere('m.ativo', true)
+            .whereNull('m.deletado_em')
             .andWhere('om.organizacao_id', organizacaoId)
             .andWhere('om.habilitado', true)
+            .whereNull('om.deletado_em')
             .andWhere('an.id', areaNegocioId)
             .andWhere('an.organizacao_id', organizacaoId)
             .andWhere('an.ativo', true)
+            .whereNull('an.deletado_em')
             .andWhere('am.habilitado', true)
+            .whereNull('am.deletado_em')
             .first();
     }
 }

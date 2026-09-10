@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import jwt, { type JwtPayload } from 'jsonwebtoken';
 import { z } from 'zod';
 
+import { env } from '../configuration/env.js';
 import connection from '../database/connection.js';
 import AppError from '../shared/errors/AppError.js';
 
@@ -15,7 +16,7 @@ export default async function verificarToken(req: Request, res: Response, next: 
             throw new AppError('Autenticação necessária.', 401, 'TOKEN_AUSENTE');
         }
 
-        const jwtSecret = process.env.JWT_SECRET;
+        const jwtSecret = env.JWT_SECRET;
 
         if (!jwtSecret) {
             throw new Error('JWT_SECRET não definida.');
@@ -64,8 +65,11 @@ export default async function verificarToken(req: Request, res: Response, next: 
             .where('u.id', usuarioId)
             .andWhere('uo.organizacao_id', resultadoOrganizacaoId.data)
             .andWhere('u.ativo', true)
+            .whereNull('u.deletado_em')
             .andWhere('uo.ativo', true)
+            .whereNull('uo.deletado_em')
             .andWhere('o.ativo', true)
+            .whereNull('o.deletado_em')
             .first();
 
         if (!vinculo) {

@@ -7,7 +7,9 @@ class ModulosRepository {
             .select('m.id', 'm.codigo', 'm.nome', 'm.descricao')
             .where('om.organizacao_id', organizacaoId)
             .andWhere('om.habilitado', true)
+            .whereNull('om.deletado_em')
             .andWhere('m.ativo', true)
+            .whereNull('m.deletado_em')
             .orderBy('m.nome', 'asc');
     }
 }

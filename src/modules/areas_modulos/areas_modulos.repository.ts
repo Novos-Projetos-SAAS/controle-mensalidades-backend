@@ -8,6 +8,7 @@ class AreasModulosRepository {
                 organizacao_id: organizacaoId,
                 ativo: true,
             })
+            .whereNull('deletado_em')
             .first();
     }
 
@@ -26,9 +27,13 @@ class AreasModulosRepository {
             .where('an.organizacao_id', organizacaoId)
             .andWhere('an.id', areaNegocioId)
             .andWhere('an.ativo', true)
+            .whereNull('an.deletado_em')
             .andWhere('m.ativo', true)
+            .whereNull('m.deletado_em')
             .andWhere('om.habilitado', true)
+            .whereNull('om.deletado_em')
             .andWhere('am.habilitado', true)
+            .whereNull('am.deletado_em')
             .orderBy('m.nome', 'asc');
     }
 }

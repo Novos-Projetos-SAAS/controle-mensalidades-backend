@@ -9,6 +9,7 @@ class ContextoRepository {
                 organizacao_id: organizacaoId,
                 ativo: true,
             })
+            .whereNull('deletado_em')
             .first();
     }
 }

@@ -1,6 +1,15 @@
-import 'dotenv/config';
-
+import dotenv from 'dotenv';
 import { z } from 'zod';
+
+const environment = process.env.NODE_ENV || 'development';
+
+dotenv.config({
+    path: environment === 'test' ? '.env.test' : '.env',
+});
+
+if (environment === 'test' && process.env.JWT_SECRET_TEST) {
+    process.env.JWT_SECRET = process.env.JWT_SECRET_TEST;
+}
 
 const envSchema = z.object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -19,7 +28,13 @@ const envSchema = z.object({
 });
 
 export function validarEnv(variaveis: NodeJS.ProcessEnv) {
-    return envSchema.parse(variaveis);
+    const variaveisNormalizadas = { ...variaveis };
+
+    if (variaveisNormalizadas.NODE_ENV === 'test' && variaveisNormalizadas.JWT_SECRET_TEST) {
+        variaveisNormalizadas.JWT_SECRET = variaveisNormalizadas.JWT_SECRET_TEST;
+    }
+
+    return envSchema.parse(variaveisNormalizadas);
 }
 
 export const env = validarEnv(process.env);
