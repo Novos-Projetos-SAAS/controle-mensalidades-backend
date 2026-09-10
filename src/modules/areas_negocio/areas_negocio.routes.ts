@@ -1,14 +1,18 @@
+// src/modules/areas_negocio/areas_negocio.routes.ts
+
 import { Router } from 'express';
 
+import verificarUsuario from '../../middlewares/verifyUser.middleware.js';
+import verificarOrganizacao from '../../middlewares/verifyOrganization.middleware.js';
+
 import areasNegociosController from './areas_negocio.controller.js';
-import verificarToken from '../../middlewares/verifyToken.middleware.js';
 
 const areasNegocioRoutes = Router();
 
-// Middleware de autenticação para todas as rotas de áreas de negócio.
-areasNegocioRoutes.use(verificarToken);
+// Middleware de autenticação e organização para todas as rotas de áreas de negócio.
+areasNegocioRoutes.use(verificarUsuario, verificarOrganizacao);
 
-// ROTA GET /business-areas
+// ROTA GET /areas-negocio
 areasNegocioRoutes.get('/', areasNegociosController.listar);
 
 export default areasNegocioRoutes;

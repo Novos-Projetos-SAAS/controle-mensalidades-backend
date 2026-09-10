@@ -12,7 +12,8 @@ import connection from '../../../src/database/connection.js';
 import errorHandler from '../../../src/middlewares/errorHandler.middleware.js';
 import requestId from '../../../src/middlewares/requestId.middleware.js';
 import verificarModulo from '../../../src/middlewares/verifyModule.middleware.js';
-import verificarToken from '../../../src/middlewares/verifyToken.middleware.js';
+import verifyOrganization from '../../../src/middlewares/verifyOrganization.middleware.js';
+import verifyUser from '../../../src/middlewares/verifyUser.middleware.js';
 import areasModulosRepository from '../../../src/modules/areas_modulos/areas_modulos.repository.js';
 import areasNegocioRepository from '../../../src/modules/areas_negocio/areas_negocio.repository.js';
 import contextoRepository from '../../../src/modules/contexto/contexto.repository.js';
@@ -39,8 +40,11 @@ const codigoModuloVinculoOrganizacaoDeletado = `OM_DELETADO_${moduloVinculoOrgan
 const codigoModuloVinculoAreaDeletado = `AM_DELETADO_${moduloVinculoAreaDeletadoId.slice(0, 8)}`;
 
 const usuariosIds = [usuarioId, usuarioDeletadoId, usuarioVinculoDeletadoId];
+
 const organizacoesIds = [organizacaoId, organizacaoDeletadaId];
+
 const areasIds = [areaId, areaDeletadaId];
+
 const modulosIds = [
     moduloAtivoId,
     moduloDeletadoId,
@@ -49,7 +53,13 @@ const modulosIds = [
 ];
 
 function gerarToken(id: string) {
-    return jwt.sign({}, env.JWT_SECRET, {
+    const jwtSecret = env.JWT_SECRET;
+
+    if (!jwtSecret) {
+        throw new Error('JWT_SECRET não definida no ambiente de teste.');
+    }
+
+    return jwt.sign({}, jwtSecret, {
         subject: id,
         expiresIn: env.JWT_EXPIRES_IN,
     });
@@ -60,9 +70,13 @@ function criarAppProtegida() {
 
     appTeste.use(requestId);
     appTeste.use(cookieParser());
-    appTeste.get('/protegida', verificarToken, (req, res) => {
-        res.status(200).json(req.auth);
+
+    appTeste.get('/protegida', verifyUser, verifyOrganization, (_req, res) => {
+        res.status(200).json({
+            status: 'success',
+        });
     });
+
     appTeste.use(errorHandler);
 
     return appTeste;
@@ -72,22 +86,29 @@ function criarAppModulo(codigoModulo: string, areaNegocioId = areaId) {
     const appTeste = express();
 
     appTeste.use(requestId);
+
     appTeste.get(
         '/modulo',
         (req, _res, next) => {
-            req.auth = {
-                usuarioId,
-                organizacaoId,
-                areaNegocioId,
-                perfil: 'ADMINISTRADOR',
-            };
+            Object.assign(req, {
+                auth: {
+                    usuarioId,
+                    organizacaoId,
+                    areaNegocioId,
+                    perfil: 'ADMINISTRADOR',
+                },
+            });
+
             next();
         },
         verificarModulo(codigoModulo),
         (_req, res) => {
-            res.status(200).json({ status: 'success' });
+            res.status(200).json({
+                status: 'success',
+            });
         },
     );
+
     appTeste.use(errorHandler);
 
     return appTeste;
@@ -95,11 +116,17 @@ function criarAppModulo(codigoModulo: string, areaNegocioId = areaId) {
 
 async function limparDadosTeste() {
     await connection('areas_modulos').whereIn('modulo_id', modulosIds).del();
+
     await connection('organizacoes_modulos').whereIn('modulo_id', modulosIds).del();
+
     await connection('usuarios_organizacoes').whereIn('usuario_id', usuariosIds).del();
+
     await connection('modulos').whereIn('id', modulosIds).del();
+
     await connection('areas_negocio').whereIn('id', areasIds).del();
+
     await connection('usuarios').whereIn('id', usuariosIds).del();
+
     await connection('organizacoes').whereIn('id', organizacoesIds).del();
 }
 
@@ -288,6 +315,7 @@ test('área soft-deleted não deve aparecer na listagem', async () => {
         areas.some((area) => area.id === areaDeletadaId),
         false,
     );
+
     assert.equal(
         areas.some((area) => area.id === areaId),
         true,
@@ -337,14 +365,14 @@ test('organização soft-deleted não deve autorizar rota protegida', async () =
     assert.equal(response.body.codigo, 'ORGANIZACAO_NAO_AUTORIZADA');
 });
 
-test('usuário soft-deleted não deve autorizar rota protegida', async () => {
+test('usuário soft-deleted não deve autenticar em rota protegida', async () => {
     const response = await request(criarAppProtegida())
         .get('/protegida')
         .set('Cookie', `token=${gerarToken(usuarioDeletadoId)}`)
         .set('x-organizacao-id', organizacaoId);
 
-    assert.equal(response.status, 403);
-    assert.equal(response.body.codigo, 'ORGANIZACAO_NAO_AUTORIZADA');
+    assert.equal(response.status, 401);
+    assert.equal(response.body.codigo, 'AUTENTICACAO_INVALIDA');
 });
 
 test('vínculo usuarios_organizacoes soft-deleted não deve autorizar rota protegida', async () => {

@@ -402,21 +402,207 @@ test('POST /api/v1/auth/login deve rejeitar usuário sem organização ativa', a
     assert.equal(response.body.mensagem, 'Usuário sem organização ativa.');
 });
 
-test('POST /api/v1/auth/login deve limitar tentativas inválidas repetidas', async () => {
-    let response: Awaited<ReturnType<typeof request>> | undefined;
+test('GET /api/v1/auth/me deve retornar usuário e organizações usando o cookie do login', async () => {
+    const agent = request.agent(app);
 
-    for (let tentativa = 0; tentativa < 11; tentativa += 1) {
+    const loginResponse = await agent.post('/api/v1/auth/login').send({
+        email: emailUsuarioAtivo,
+        senha: senhaValida,
+    });
+
+    assert.equal(loginResponse.status, 200);
+
+    const response = await agent.get('/api/v1/auth/me');
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.status, 'success');
+    assert.equal(response.body.message, 'Usuário autenticado obtido com sucesso.');
+
+    assert.deepEqual(response.body.data.usuario, {
+        id: usuarioAtivoId,
+        nome: 'Usuário Ativo Auth',
+        email: emailUsuarioAtivo,
+    });
+
+    assert.equal('senha_hash' in response.body.data.usuario, false);
+    assert.equal('token' in response.body, false);
+    assert.equal('token' in response.body.data, false);
+
+    assert.equal(response.body.data.organizacoes.length, 2);
+
+    const organizacaoA = response.body.data.organizacoes.find(
+        (organizacao: { id: string }) => organizacao.id === organizacaoAId,
+    );
+
+    const organizacaoB = response.body.data.organizacoes.find(
+        (organizacao: { id: string }) => organizacao.id === organizacaoBId,
+    );
+
+    assert.deepEqual(organizacaoA, {
+        id: organizacaoAId,
+        nome: 'Academia A Auth',
+        perfil: 'ADMINISTRADOR',
+    });
+
+    assert.deepEqual(organizacaoB, {
+        id: organizacaoBId,
+        nome: 'Academia B Auth',
+        perfil: 'OPERADOR',
+    });
+
+    assert.equal(
+        response.body.data.organizacoes.some(
+            (organizacao: { id: string }) => organizacao.id === organizacaoInativaId,
+        ),
+        false,
+    );
+
+    assert.equal(
+        response.body.data.organizacoes.some(
+            (organizacao: { id: string }) => organizacao.id === organizacaoVinculoInativoId,
+        ),
+        false,
+    );
+
+    assert.equal(
+        response.body.data.organizacoes.some(
+            (organizacao: { id: string }) => organizacao.id === organizacaoDeletadaId,
+        ),
+        false,
+    );
+
+    assert.equal(
+        response.body.data.organizacoes.some(
+            (organizacao: { id: string }) => organizacao.id === organizacaoVinculoDeletadoId,
+        ),
+        false,
+    );
+});
+
+test('GET /api/v1/auth/me não deve exigir x-organizacao-id', async () => {
+    const agent = request.agent(app);
+
+    const loginResponse = await agent.post('/api/v1/auth/login').send({
+        email: emailUsuarioAtivo,
+        senha: senhaValida,
+    });
+
+    assert.equal(loginResponse.status, 200);
+
+    const response = await agent.get('/api/v1/auth/me');
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.status, 'success');
+});
+
+test('GET /api/v1/auth/me deve rejeitar requisição sem cookie', async () => {
+    const response = await request(app).get('/api/v1/auth/me');
+
+    assert.equal(response.status, 401);
+    assert.equal(response.body.codigo, 'TOKEN_AUSENTE');
+    assert.equal(response.body.mensagem, 'Autenticação necessária.');
+    assert.equal(typeof response.body.request_id, 'string');
+});
+
+test('GET /api/v1/auth/me deve rejeitar token inválido', async () => {
+    const response = await request(app)
+        .get('/api/v1/auth/me')
+        .set('Cookie', ['token=token-invalido']);
+
+    assert.equal(response.status, 401);
+    assert.equal(response.body.codigo, 'TOKEN_INVALIDO');
+    assert.equal(response.body.mensagem, 'Token de autenticação inválido.');
+});
+
+test('GET /api/v1/auth/me deve rejeitar token expirado', async () => {
+    const jwtSecret = env.JWT_SECRET;
+
+    assert.ok(jwtSecret);
+
+    const tokenExpirado = jwt.sign({}, jwtSecret, {
+        subject: usuarioAtivoId,
+        expiresIn: -1,
+    });
+
+    const response = await request(app)
+        .get('/api/v1/auth/me')
+        .set('Cookie', [`token=${tokenExpirado}`]);
+
+    assert.equal(response.status, 401);
+    assert.equal(response.body.codigo, 'TOKEN_EXPIRADO');
+    assert.equal(response.body.mensagem, 'Sessão expirada.');
+});
+
+test('GET /api/v1/auth/me deve rejeitar usuário inativo mesmo com token válido', async () => {
+    const jwtSecret = env.JWT_SECRET;
+
+    assert.ok(jwtSecret);
+
+    const token = jwt.sign({}, jwtSecret, {
+        subject: usuarioInativoId,
+        expiresIn: '1h',
+    });
+
+    const response = await request(app)
+        .get('/api/v1/auth/me')
+        .set('Cookie', [`token=${token}`]);
+
+    assert.equal(response.status, 401);
+    assert.equal(response.body.codigo, 'AUTENTICACAO_INVALIDA');
+    assert.equal(response.body.mensagem, 'Autenticação inválida.');
+});
+
+test('GET /api/v1/auth/me deve rejeitar usuário deletado mesmo com token válido', async () => {
+    const jwtSecret = env.JWT_SECRET;
+
+    assert.ok(jwtSecret);
+
+    const token = jwt.sign({}, jwtSecret, {
+        subject: usuarioDeletadoId,
+        expiresIn: '1h',
+    });
+
+    const response = await request(app)
+        .get('/api/v1/auth/me')
+        .set('Cookie', [`token=${token}`]);
+
+    assert.equal(response.status, 401);
+    assert.equal(response.body.codigo, 'AUTENTICACAO_INVALIDA');
+    assert.equal(response.body.mensagem, 'Autenticação inválida.');
+});
+
+test('GET /api/v1/auth/me deve rejeitar usuário sem organização ativa', async () => {
+    const jwtSecret = env.JWT_SECRET;
+
+    assert.ok(jwtSecret);
+
+    const token = jwt.sign({}, jwtSecret, {
+        subject: usuarioSemOrganizacaoId,
+        expiresIn: '1h',
+    });
+
+    const response = await request(app)
+        .get('/api/v1/auth/me')
+        .set('Cookie', [`token=${token}`]);
+
+    assert.equal(response.status, 403);
+    assert.equal(response.body.codigo, 'USUARIO_SEM_ORGANIZACAO_ATIVA');
+    assert.equal(response.body.mensagem, 'Usuário sem organização ativa.');
+});
+
+test('POST /api/v1/auth/login deve limitar tentativas inválidas repetidas', async () => {
+    let response = await request(app).post('/api/v1/auth/login').send({
+        email: emailUsuarioAtivo,
+        senha: 'SenhaIncorreta123!',
+    });
+
+    for (let tentativa = 1; tentativa < 11 && response.status !== 429; tentativa += 1) {
         response = await request(app).post('/api/v1/auth/login').send({
             email: emailUsuarioAtivo,
             senha: 'SenhaIncorreta123!',
         });
-
-        if (response.status === 429) {
-            break;
-        }
     }
 
-    assert.ok(response);
     assert.equal(response.status, 429);
     assert.equal(response.body.codigo, 'MUITAS_TENTATIVAS_LOGIN');
     assert.equal(

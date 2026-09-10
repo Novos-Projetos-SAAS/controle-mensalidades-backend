@@ -10,6 +10,15 @@ class AuthRepository {
             .first();
     }
 
+    async buscarUsuarioAtivoPorId(usuarioId: string) {
+        return connection('usuarios as u')
+            .select('u.id', 'u.nome', 'u.email')
+            .where('u.id', usuarioId)
+            .andWhere('u.ativo', true)
+            .whereNull('u.deletado_em')
+            .first();
+    }
+
     async listarOrganizacoesAtivasDoUsuario(usuarioId: string) {
         return connection('usuarios_organizacoes as uo')
             .innerJoin('organizacoes as o', 'o.id', 'uo.organizacao_id')

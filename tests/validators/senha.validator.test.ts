@@ -24,8 +24,8 @@ test('validarSenhaForte deve aceitar uma senha forte', () => {
     assert.equal(validarSenhaForte(senha), senha);
 });
 
-test('validarSenhaForte deve rejeitar senha com menos de 8 caracteres', () => {
-    assertSenhaFraca('Aa1!aaa', 'A senha deve possuir pelo menos 8 caracteres.');
+test('validarSenhaForte deve rejeitar senha com menos de 12 caracteres', () => {
+    assertSenhaFraca('Aa1!aaa', 'A senha deve possuir pelo menos 12 caracteres.');
 });
 
 test('validarSenhaForte deve rejeitar senha sem letra minúscula', () => {
@@ -37,7 +37,7 @@ test('validarSenhaForte deve rejeitar senha sem letra maiúscula', () => {
 });
 
 test('validarSenhaForte deve rejeitar senha sem número', () => {
-    assertSenhaFraca('SenhaTeste!', 'A senha deve possuir um número.');
+    assertSenhaFraca('SenhaSemNumero!', 'A senha deve possuir um número.');
 });
 
 test('validarSenhaForte deve rejeitar senha sem caractere especial', () => {

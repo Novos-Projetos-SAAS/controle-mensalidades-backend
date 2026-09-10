@@ -1,7 +1,10 @@
 import type { NextFunction, Request, Response } from 'express';
 
 import { env } from '../../configuration/env.js';
+import AppError from '../../shared/errors/AppError.js';
+
 import auditoriaService from '../auditoria/auditoria.service.js';
+
 import authService from './auth.service.js';
 
 const duracaoCookiePorJwt = {
@@ -59,6 +62,24 @@ class AuthController {
                     usuario,
                     organizacoes,
                 },
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async me(req: Request, res: Response, next: NextFunction) {
+        try {
+            if (!req.usuario) {
+                throw new AppError('Autenticação necessária.', 401, 'AUTENTICACAO_NECESSARIA');
+            }
+
+            const data = await authService.me(req.usuario.id);
+
+            return res.status(200).json({
+                status: 'success',
+                message: 'Usuário autenticado obtido com sucesso.',
+                data,
             });
         } catch (error) {
             next(error);

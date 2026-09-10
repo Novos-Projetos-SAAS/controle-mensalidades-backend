@@ -61,6 +61,29 @@ class AuthService {
             organizacoes,
         };
     }
+
+    async me(usuarioId: string) {
+        const usuario = await authRepository.buscarUsuarioAtivoPorId(usuarioId);
+
+        if (!usuario) {
+            throw new AppError('Autenticação inválida.', 401, 'AUTENTICACAO_INVALIDA');
+        }
+
+        const organizacoes = await authRepository.listarOrganizacoesAtivasDoUsuario(usuario.id);
+
+        if (organizacoes.length === 0) {
+            throw new AppError(
+                'Usuário sem organização ativa.',
+                403,
+                'USUARIO_SEM_ORGANIZACAO_ATIVA',
+            );
+        }
+
+        return {
+            usuario,
+            organizacoes,
+        };
+    }
 }
 
 export default new AuthService();
