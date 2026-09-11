@@ -21,6 +21,10 @@ const openApiDocument = {
             name: 'Usuários',
             description: 'Gestão dos vínculos de usuários com a organização atual.',
         },
+        {
+            name: 'Organizações',
+            description: 'Consulta e atualização dos dados básicos da organização atual.',
+        },
     ],
     paths: {
         '/health': {
@@ -46,6 +50,100 @@ const openApiDocument = {
                                 },
                             },
                         },
+                    },
+                },
+            },
+        },
+        '/organizacoes/atual': {
+            get: {
+                tags: ['Organizações'],
+                summary: 'Consultar a organização atual',
+                operationId: 'consultarOrganizacaoAtual',
+                security: [{ cookieAuth: [] }],
+                parameters: [
+                    {
+                        name: 'x-organizacao-id',
+                        in: 'header',
+                        required: true,
+                        schema: {
+                            type: 'string',
+                            format: 'uuid',
+                        },
+                    },
+                ],
+                responses: {
+                    '200': {
+                        description: 'Dados básicos seguros da organização atual.',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    $ref: '#/components/schemas/RespostaOrganizacaoAtual',
+                                },
+                            },
+                        },
+                    },
+                    '400': {
+                        $ref: '#/components/responses/ErroPadronizado',
+                    },
+                    '401': {
+                        $ref: '#/components/responses/ErroPadronizado',
+                    },
+                    '403': {
+                        $ref: '#/components/responses/ErroPadronizado',
+                    },
+                    '404': {
+                        $ref: '#/components/responses/ErroPadronizado',
+                    },
+                },
+            },
+            patch: {
+                tags: ['Organizações'],
+                summary: 'Atualizar a organização atual',
+                operationId: 'atualizarOrganizacaoAtual',
+                security: [{ cookieAuth: [] }],
+                parameters: [
+                    {
+                        name: 'x-organizacao-id',
+                        in: 'header',
+                        required: true,
+                        schema: {
+                            type: 'string',
+                            format: 'uuid',
+                        },
+                    },
+                ],
+                requestBody: {
+                    required: true,
+                    content: {
+                        'application/json': {
+                            schema: {
+                                $ref: '#/components/schemas/AtualizacaoOrganizacaoAtual',
+                            },
+                        },
+                    },
+                },
+                responses: {
+                    '200': {
+                        description: 'Organização atualizada com sucesso.',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    $ref: '#/components/schemas/RespostaOrganizacaoAtual',
+                                },
+                            },
+                        },
+                    },
+                    '400': {
+                        $ref: '#/components/responses/ErroPadronizado',
+                    },
+                    '401': {
+                        $ref: '#/components/responses/ErroPadronizado',
+                    },
+                    '403': {
+                        $ref: '#/components/responses/ErroPadronizado',
+                    },
+                    '404': {
+                        $ref: '#/components/responses/ErroPadronizado',
                     },
                 },
             },
@@ -258,6 +356,104 @@ const openApiDocument = {
                     },
                     request_id: {
                         type: 'string',
+                    },
+                },
+            },
+            OrganizacaoAtual: {
+                type: 'object',
+                additionalProperties: false,
+                required: [
+                    'id',
+                    'nome',
+                    'nome_fantasia',
+                    'razao_social',
+                    'cpf_cnpj',
+                    'email',
+                    'telefone',
+                ],
+                properties: {
+                    id: {
+                        type: 'string',
+                        format: 'uuid',
+                    },
+                    nome: {
+                        type: 'string',
+                        maxLength: 150,
+                    },
+                    nome_fantasia: {
+                        type: ['string', 'null'],
+                        maxLength: 150,
+                    },
+                    razao_social: {
+                        type: ['string', 'null'],
+                        maxLength: 150,
+                    },
+                    cpf_cnpj: {
+                        type: ['string', 'null'],
+                        maxLength: 20,
+                    },
+                    email: {
+                        type: ['string', 'null'],
+                        format: 'email',
+                        maxLength: 150,
+                    },
+                    telefone: {
+                        type: ['string', 'null'],
+                        maxLength: 20,
+                    },
+                },
+            },
+            AtualizacaoOrganizacaoAtual: {
+                type: 'object',
+                additionalProperties: false,
+                minProperties: 1,
+                properties: {
+                    nome: {
+                        type: 'string',
+                        minLength: 1,
+                        maxLength: 150,
+                    },
+                    nome_fantasia: {
+                        type: ['string', 'null'],
+                        minLength: 1,
+                        maxLength: 150,
+                    },
+                    razao_social: {
+                        type: ['string', 'null'],
+                        minLength: 1,
+                        maxLength: 150,
+                    },
+                    cpf_cnpj: {
+                        type: ['string', 'null'],
+                        minLength: 1,
+                        maxLength: 20,
+                    },
+                    email: {
+                        type: ['string', 'null'],
+                        format: 'email',
+                        maxLength: 150,
+                    },
+                    telefone: {
+                        type: ['string', 'null'],
+                        minLength: 1,
+                        maxLength: 20,
+                    },
+                },
+            },
+            RespostaOrganizacaoAtual: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['status', 'message', 'data'],
+                properties: {
+                    status: {
+                        type: 'string',
+                        const: 'success',
+                    },
+                    message: {
+                        type: 'string',
+                    },
+                    data: {
+                        $ref: '#/components/schemas/OrganizacaoAtual',
                     },
                 },
             },

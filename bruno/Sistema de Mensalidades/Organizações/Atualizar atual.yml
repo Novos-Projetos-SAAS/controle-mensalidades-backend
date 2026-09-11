@@ -1,0 +1,24 @@
+info:
+  name: Atualizar atual
+  type: http
+  seq: 2
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/organizacoes/atual"
+  headers:
+    - name: x-organizacao-id
+      value: 1248c1f9-4bb3-4964-8c49-def6a0881a28
+  body:
+    type: json
+    data: |-
+      {
+        "telefone": "18999999999"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

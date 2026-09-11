@@ -1,0 +1,27 @@
+info:
+  name: Criar
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: "{{baseUrl}}/usuarios"
+  headers:
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "nome": "Operador Teste",
+        "email": "operador.teste@exemplo.com",
+        "senha": "SenhaTeste123!",
+        "perfil": "OPERADOR"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

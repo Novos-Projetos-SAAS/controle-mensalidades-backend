@@ -2,6 +2,22 @@ opencollection: 1.0.0
 
 info:
   name: Sistema de Mensalidades
+config:
+  proxy:
+    inherit: true
+    config:
+      protocol: http
+      hostname: ""
+      port: ""
+      auth:
+        username: ""
+        password: ""
+      bypassProxy: ""
+
+request:
+  headers:
+    - name: organizacao_id
+      value: 1248c1f9-4bb3-4964-8c49-def6a0881a28
 bundled: false
 extensions:
   bruno:
