@@ -1,0 +1,26 @@
+info:
+  name: Atualizar áreas do cliente
+  type: http
+  seq: 13
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/clientes/dfd193de-f7b9-44ff-9a86-1c5e79af6acf"
+  headers:
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "areas": [
+          "{{area_negocio_id}}"
+        ]
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

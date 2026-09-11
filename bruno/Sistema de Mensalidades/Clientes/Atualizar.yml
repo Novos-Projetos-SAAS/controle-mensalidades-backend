@@ -1,0 +1,28 @@
+info:
+  name: Atualizar
+  type: http
+  seq: 11
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/clientes/dfd193de-f7b9-44ff-9a86-1c5e79af6acf"
+  headers:
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "nome": "João Atualizado",
+        "telefone": "(18) 98888-7777",
+        "email": " JOAO.ATUALIZADO@TESTE.COM ",
+        "cep": "16000-999",
+        "uf": "sp"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

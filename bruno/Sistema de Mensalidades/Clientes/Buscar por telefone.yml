@@ -1,0 +1,22 @@
+info:
+  name: Buscar por telefone
+  type: http
+  seq: 5
+
+http:
+  method: GET
+  url: "{{baseUrl}}/clientes?busca=(18)%99999-9999"
+  headers:
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+  params:
+    - name: busca
+      value: (18)%99999-9999
+      type: query
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

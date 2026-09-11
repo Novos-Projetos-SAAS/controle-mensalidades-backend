@@ -1,0 +1,1165 @@
+==================================================
+ARQUIVO: C:\Users\Nei Junio\Documents\Github\controle-mensalidades-backend\src\modules\clientes\clientes.controller.ts
+==================================================
+import type { NextFunction, Request, Response } from 'express';
+
+import AppError from '../../shared/errors/AppError.js';
+
+import auditoriaService from '../auditoria/auditoria.service.js';
+
+import clientesService from './clientes.service.js';
+import {
+    validarAtualizacaoCliente,
+    validarClienteId,
+    validarCriacaoCliente,
+    validarFiltrosClientes,
+} from './clientes.validator.js';
+
+class ClientesController {
+    async criar(req: Request, res: Response, next: NextFunction) {
+        try {
+            if (!req.auth) {
+                throw new AppError('Autenticação necessária.', 401, 'AUTENTICACAO_NECESSARIA');
+            }
+
+            const dados = validarCriacaoCliente(req.body);
+
+            const cliente = await clientesService.criar(req.auth.organizacaoId, dados);
+
+            try {
+                const userAgent = req.get('user-agent');
+                const ip = req.ip;
+
+                await auditoriaService.registrar({
+                    organizacaoId: req.auth.organizacaoId,
+                    usuarioId: req.auth.usuarioId,
+                    acao: 'CLIENTE.CRIADO',
+                    recurso: 'CLIENTE',
+                    recursoId: cliente.id,
+                    dadosContexto: {
+                        clienteId: cliente.id,
+                        areas: cliente.areas.map((area) => area.id),
+                        requestId: req.requestId,
+                    },
+                    ...(ip ? { ip } : {}),
+                    ...(userAgent ? { userAgent } : {}),
+                });
+            } catch (auditoriaError) {
+                console.error(
+                    `Falha ao registrar auditoria de criação de cliente. Request ID: ${req.requestId}`,
+                    auditoriaError,
+                );
+            }
+
+            return res.status(201).json({
+                status: 'success',
+                message: 'Cliente criado com sucesso.',
+                data: cliente,
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async listar(req: Request, res: Response, next: NextFunction) {
+        try {
+            if (!req.auth) {
+                throw new AppError('Autenticação necessária.', 401, 'AUTENTICACAO_NECESSARIA');
+            }
+
+            const filtros = validarFiltrosClientes(req.query);
+
+            const clientes = await clientesService.listar(req.auth.organizacaoId, filtros);
+
+            return res.status(200).json({
+                status: 'success',
+                message: 'Clientes listados com sucesso.',
+                data: clientes,
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async buscarPorId(req: Request, res: Response, next: NextFunction) {
+        try {
+            if (!req.auth) {
+                throw new AppError('Autenticação necessária.', 401, 'AUTENTICACAO_NECESSARIA');
+            }
+
+            const clienteId = validarClienteId(req.params.clienteId);
+
+            const cliente = await clientesService.buscarPorId(req.auth.organizacaoId, clienteId);
+
+            return res.status(200).json({
+                status: 'success',
+                message: 'Cliente encontrado com sucesso.',
+                data: cliente,
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async atualizar(req: Request, res: Response, next: NextFunction) {
+        try {
+            if (!req.auth) {
+                throw new AppError('Autenticação necessária.', 401, 'AUTENTICACAO_NECESSARIA');
+            }
+
+            const clienteId = validarClienteId(req.params.clienteId);
+            const dados = validarAtualizacaoCliente(req.body);
+            const resultado = await clientesService.atualizar(
+                req.auth.organizacaoId,
+                clienteId,
+                dados,
+            );
+
+            try {
+                const userAgent = req.get('user-agent');
+                const ip = req.ip;
+
+                await auditoriaService.registrar({
+                    organizacaoId: req.auth.organizacaoId,
+                    usuarioId: req.auth.usuarioId,
+                    acao: 'CLIENTE.ATUALIZADO',
+                    recurso: 'CLIENTE',
+                    recursoId: clienteId,
+                    dadosContexto: {
+                        clienteId,
+                        ...resultado.auditoria,
+                        requestId: req.requestId,
+                    },
+                    ...(ip ? { ip } : {}),
+                    ...(userAgent ? { userAgent } : {}),
+                });
+            } catch (auditoriaError) {
+                console.error(
+                    `Falha ao registrar auditoria de atualização de cliente. Request ID: ${req.requestId}`,
+                    auditoriaError,
+                );
+            }
+
+            return res.status(200).json({
+                status: 'success',
+                message: 'Cliente atualizado com sucesso.',
+                data: resultado.cliente,
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+}
+
+export default new ClientesController();
+
+==================================================
+ARQUIVO: C:\Users\Nei Junio\Documents\Github\controle-mensalidades-backend\src\modules\clientes\clientes.repository.ts
+==================================================
+import type { Knex } from 'knex';
+
+import connection from '../../database/connection.js';
+
+type ExecutorBanco = Knex | Knex.Transaction;
+
+type DadosNovoCliente = {
+    nome: string;
+    cpf?: string;
+    dataNascimento?: string;
+    telefone?: string;
+    email?: string;
+    sexo?: string;
+    cep?: string;
+    logradouro?: string;
+    numero?: string;
+    complemento?: string;
+    bairro?: string;
+    cidade?: string;
+    uf?: string;
+    observacao?: string;
+};
+
+export type DadosAtualizacaoCliente = {
+    nome?: string;
+    cpf?: string | null;
+    data_nascimento?: string | null;
+    telefone?: string | null;
+    email?: string | null;
+    sexo?: string | null;
+    cep?: string | null;
+    logradouro?: string | null;
+    numero?: string | null;
+    complemento?: string | null;
+    bairro?: string | null;
+    cidade?: string | null;
+    uf?: string | null;
+    observacao?: string | null;
+};
+
+type FiltrosListagemClientes = {
+    busca?: string;
+    buscaNumerica?: string;
+    ativo?: boolean;
+    areaNegocioId?: string;
+};
+
+type AreaCliente = {
+    id: string;
+    nome: string;
+};
+
+type AreaClienteComVinculo = AreaCliente & {
+    clienteId: string;
+};
+
+type ClienteCriado = {
+    id: string;
+    nome: string;
+    cpf: string | null;
+    data_nascimento: string | null;
+    telefone: string | null;
+    email: string | null;
+    sexo: string | null;
+    cep: string | null;
+    logradouro: string | null;
+    numero: string | null;
+    complemento: string | null;
+    bairro: string | null;
+    cidade: string | null;
+    uf: string | null;
+    observacao: string | null;
+    aceite_whatsapp: boolean;
+    ativo: boolean;
+};
+
+type ClienteResumo = {
+    id: string;
+    nome: string;
+    cpf: string | null;
+    telefone: string | null;
+    email: string | null;
+    ativo: boolean;
+};
+
+export type ClienteDetalhe = ClienteCriado & {
+    aceite_whatsapp_em: Date | null;
+    origem_aceite_whatsapp: string | null;
+    inativado_em: Date | null;
+};
+
+class ClientesRepository {
+    async executarEmTransacao<T>(operacao: (transaction: Knex.Transaction) => Promise<T>) {
+        return connection.transaction(operacao);
+    }
+
+    async buscarPorCpf(
+        organizacaoId: string,
+        cpf: string,
+        transaction: Knex.Transaction,
+        clienteIdExcluir?: string,
+    ) {
+        const consulta = transaction('clientes')
+            .select('id')
+            .where({
+                organizacao_id: organizacaoId,
+                cpf,
+            })
+            .whereNull('deletado_em');
+
+        if (clienteIdExcluir) {
+            consulta.whereNot('id', clienteIdExcluir);
+        }
+
+        return consulta.first();
+    }
+
+    async listarAreasValidas(
+        organizacaoId: string,
+        areasIds: string[],
+        transaction: Knex.Transaction,
+    ): Promise<AreaCliente[]> {
+        const areas = await transaction('areas_negocio')
+            .select('id', 'nome')
+            .where('organizacao_id', organizacaoId)
+            .whereIn('id', areasIds)
+            .andWhere('ativo', true)
+            .whereNull('deletado_em');
+
+        return areas as AreaCliente[];
+    }
+
+    async buscarAreaAtivaPorId(
+        organizacaoId: string,
+        areaNegocioId: string,
+    ): Promise<AreaCliente | undefined> {
+        const area = await connection('areas_negocio')
+            .select('id', 'nome')
+            .where({
+                id: areaNegocioId,
+                organizacao_id: organizacaoId,
+                ativo: true,
+            })
+            .whereNull('deletado_em')
+            .first();
+
+        return area as AreaCliente | undefined;
+    }
+
+    async criarCliente(
+        organizacaoId: string,
+        dados: DadosNovoCliente,
+        transaction: Knex.Transaction,
+    ): Promise<ClienteCriado> {
+        const [cliente] = await transaction('clientes')
+            .insert({
+                organizacao_id: organizacaoId,
+                nome: dados.nome,
+                cpf: dados.cpf ?? null,
+                data_nascimento: dados.dataNascimento ?? null,
+                telefone: dados.telefone ?? null,
+                email: dados.email ?? null,
+                sexo: dados.sexo ?? null,
+                cep: dados.cep ?? null,
+                logradouro: dados.logradouro ?? null,
+                numero: dados.numero ?? null,
+                complemento: dados.complemento ?? null,
+                bairro: dados.bairro ?? null,
+                cidade: dados.cidade ?? null,
+                uf: dados.uf ?? null,
+                observacao: dados.observacao ?? null,
+                ativo: true,
+            })
+            .returning([
+                'id',
+                'nome',
+                'cpf',
+                'data_nascimento',
+                'telefone',
+                'email',
+                'sexo',
+                'cep',
+                'logradouro',
+                'numero',
+                'complemento',
+                'bairro',
+                'cidade',
+                'uf',
+                'observacao',
+                'aceite_whatsapp',
+                'ativo',
+            ]);
+
+        return cliente as ClienteCriado;
+    }
+
+    async criarVinculosAreas(clienteId: string, areasIds: string[], transaction: Knex.Transaction) {
+        await transaction('clientes_areas').insert(
+            areasIds.map((areaNegocioId) => ({
+                cliente_id: clienteId,
+                area_negocio_id: areaNegocioId,
+                ativo: true,
+            })),
+        );
+    }
+
+    async listarPorOrganizacao(
+        organizacaoId: string,
+        filtros: FiltrosListagemClientes,
+    ): Promise<ClienteResumo[]> {
+        const consulta = connection('clientes as c')
+            .select('c.id', 'c.nome', 'c.cpf', 'c.telefone', 'c.email', 'c.ativo')
+            .where('c.organizacao_id', organizacaoId)
+            .whereNull('c.deletado_em');
+
+        if (filtros.ativo !== undefined) {
+            consulta.andWhere('c.ativo', filtros.ativo);
+        }
+
+        if (filtros.areaNegocioId) {
+            consulta.whereExists(function () {
+                this.select(connection.raw('1'))
+                    .from('clientes_areas as ca')
+                    .whereRaw('ca.cliente_id = c.id')
+                    .andWhere('ca.area_negocio_id', filtros.areaNegocioId!)
+                    .andWhere('ca.ativo', true)
+                    .whereNull('ca.deletado_em');
+            });
+        }
+
+        if (filtros.busca) {
+            consulta.andWhere((builder) => {
+                builder
+                    .whereILike('c.nome', `%${filtros.busca}%`)
+                    .orWhereILike('c.email', `%${filtros.busca}%`);
+
+                if (filtros.buscaNumerica) {
+                    builder
+                        .orWhere('c.cpf', 'like', `%${filtros.buscaNumerica}%`)
+                        .orWhere('c.telefone', 'like', `%${filtros.buscaNumerica}%`);
+                }
+            });
+        }
+
+        const clientes = await consulta.orderBy('c.nome', 'asc').orderBy('c.id', 'asc');
+
+        return clientes as ClienteResumo[];
+    }
+
+    async buscarPorId(
+        organizacaoId: string,
+        clienteId: string,
+        executor: ExecutorBanco = connection,
+    ): Promise<ClienteDetalhe | undefined> {
+        const cliente = await executor('clientes as c')
+            .select(
+                'c.id',
+                'c.nome',
+                'c.cpf',
+                'c.data_nascimento',
+                'c.telefone',
+                'c.email',
+                'c.sexo',
+                'c.cep',
+                'c.logradouro',
+                'c.numero',
+                'c.complemento',
+                'c.bairro',
+                'c.cidade',
+                'c.uf',
+                'c.observacao',
+                'c.aceite_whatsapp',
+                'c.aceite_whatsapp_em',
+                'c.origem_aceite_whatsapp',
+                'c.ativo',
+                'c.inativado_em',
+            )
+            .where({
+                'c.id': clienteId,
+                'c.organizacao_id': organizacaoId,
+            })
+            .whereNull('c.deletado_em')
+            .first();
+
+        return cliente as ClienteDetalhe | undefined;
+    }
+
+    async listarAreasDosClientes(
+        clientesIds: string[],
+        executor: ExecutorBanco = connection,
+    ): Promise<AreaClienteComVinculo[]> {
+        if (clientesIds.length === 0) {
+            return [];
+        }
+
+        const areas = await executor('clientes_areas as ca')
+            .innerJoin('areas_negocio as a', 'a.id', 'ca.area_negocio_id')
+            .select('ca.cliente_id as clienteId', 'a.id', 'a.nome')
+            .whereIn('ca.cliente_id', clientesIds)
+            .andWhere('ca.ativo', true)
+            .andWhere('a.ativo', true)
+            .whereNull('ca.deletado_em')
+            .whereNull('a.deletado_em')
+            .orderBy('a.nome', 'asc');
+
+        return areas as AreaClienteComVinculo[];
+    }
+
+    async atualizarCliente(
+        organizacaoId: string,
+        clienteId: string,
+        dados: DadosAtualizacaoCliente,
+        transaction: Knex.Transaction,
+    ) {
+        await transaction('clientes')
+            .where({
+                id: clienteId,
+                organizacao_id: organizacaoId,
+            })
+            .whereNull('deletado_em')
+            .update(dados);
+    }
+
+    async sincronizarAreas(clienteId: string, areasIds: string[], transaction: Knex.Transaction) {
+        const vinculosExistentes = await transaction('clientes_areas')
+            .select('area_negocio_id')
+            .where('cliente_id', clienteId);
+        const areasExistentes = new Set<string>(
+            vinculosExistentes.map((vinculo) => vinculo.area_negocio_id),
+        );
+
+        await transaction('clientes_areas')
+            .where('cliente_id', clienteId)
+            .whereNull('deletado_em')
+            .whereNotIn('area_negocio_id', areasIds)
+            .update({ ativo: false });
+
+        await transaction('clientes_areas')
+            .where('cliente_id', clienteId)
+            .whereIn('area_negocio_id', areasIds)
+            .update({
+                ativo: true,
+                deletado_em: null,
+            });
+
+        const novasAreasIds = areasIds.filter((areaId) => !areasExistentes.has(areaId));
+
+        if (novasAreasIds.length > 0) {
+            await transaction('clientes_areas').insert(
+                novasAreasIds.map((areaNegocioId) => ({
+                    cliente_id: clienteId,
+                    area_negocio_id: areaNegocioId,
+                    ativo: true,
+                })),
+            );
+        }
+    }
+}
+
+export default new ClientesRepository();
+
+==================================================
+ARQUIVO: C:\Users\Nei Junio\Documents\Github\controle-mensalidades-backend\src\modules\clientes\clientes.routes.ts
+==================================================
+import { Router } from 'express';
+
+import verifyOrganization from '../../middlewares/verifyOrganization.middleware.js';
+import verifyUser from '../../middlewares/verifyUser.middleware.js';
+
+import clientesController from './clientes.controller.js';
+
+const clientesRoutes = Router();
+
+// Middleware de autenticação e organização para todas as rotas de clientes.
+clientesRoutes.use(verifyUser, verifyOrganization);
+
+// ROTA POST /clientes
+clientesRoutes.post('/', clientesController.criar);
+
+// ROTA GET /clientes
+clientesRoutes.get('/', clientesController.listar);
+
+// ROTA GET /clientes/:clienteId
+clientesRoutes.get('/:clienteId', clientesController.buscarPorId);
+
+// ROTA PATCH /clientes/:clienteId
+clientesRoutes.patch('/:clienteId', clientesController.atualizar);
+
+export default clientesRoutes;
+
+==================================================
+ARQUIVO: C:\Users\Nei Junio\Documents\Github\controle-mensalidades-backend\src\modules\clientes\clientes.service.ts
+==================================================
+import AppError from '../../shared/errors/AppError.js';
+
+import clientesRepository from './clientes.repository.js';
+import type { DadosAtualizacaoCliente } from './clientes.repository.js';
+import type {
+    AtualizarClienteInput,
+    CriarClienteInput,
+    FiltrosClientesInput,
+} from './clientes.validator.js';
+
+function isCpfDuplicado(error: unknown) {
+    return (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        error.code === '23505' &&
+        'constraint' in error &&
+        error.constraint === 'uq_clientes_organizacao_cpf'
+    );
+}
+
+function erroCpfJaCadastrado() {
+    return new AppError(
+        'Já existe um cliente cadastrado com este CPF.',
+        409,
+        'CLIENTE_CPF_JA_CADASTRADO',
+    );
+}
+
+function erroClienteNaoEncontrado() {
+    return new AppError('Cliente não encontrado.', 404, 'CLIENTE_NAO_ENCONTRADO');
+}
+
+function erroAreaNaoEncontrada() {
+    return new AppError('Área de negócio não encontrada.', 404, 'AREA_NEGOCIO_NAO_ENCONTRADA');
+}
+
+class ClientesService {
+    async criar(organizacaoId: string | undefined, dados: CriarClienteInput) {
+        if (!organizacaoId) {
+            throw new AppError('Organização não informada.', 400, 'ORGANIZACAO_NAO_INFORMADA');
+        }
+
+        try {
+            return await clientesRepository.executarEmTransacao(async (transaction) => {
+                const areasValidas = await clientesRepository.listarAreasValidas(
+                    organizacaoId,
+                    dados.areas,
+                    transaction,
+                );
+
+                if (areasValidas.length !== dados.areas.length) {
+                    throw new AppError(
+                        'Área de negócio não encontrada.',
+                        404,
+                        'AREA_NEGOCIO_NAO_ENCONTRADA',
+                    );
+                }
+
+                if (dados.cpf) {
+                    const clienteExistente = await clientesRepository.buscarPorCpf(
+                        organizacaoId,
+                        dados.cpf,
+                        transaction,
+                    );
+
+                    if (clienteExistente) {
+                        throw erroCpfJaCadastrado();
+                    }
+                }
+
+                const cliente = await clientesRepository.criarCliente(
+                    organizacaoId,
+                    {
+                        nome: dados.nome,
+                        ...(dados.cpf !== undefined && {
+                            cpf: dados.cpf,
+                        }),
+                        ...(dados.data_nascimento !== undefined && {
+                            dataNascimento: dados.data_nascimento,
+                        }),
+                        ...(dados.telefone !== undefined && {
+                            telefone: dados.telefone,
+                        }),
+                        ...(dados.email !== undefined && {
+                            email: dados.email,
+                        }),
+                        ...(dados.sexo !== undefined && {
+                            sexo: dados.sexo,
+                        }),
+                        ...(dados.cep !== undefined && {
+                            cep: dados.cep,
+                        }),
+                        ...(dados.logradouro !== undefined && {
+                            logradouro: dados.logradouro,
+                        }),
+                        ...(dados.numero !== undefined && {
+                            numero: dados.numero,
+                        }),
+                        ...(dados.complemento !== undefined && {
+                            complemento: dados.complemento,
+                        }),
+                        ...(dados.bairro !== undefined && {
+                            bairro: dados.bairro,
+                        }),
+                        ...(dados.cidade !== undefined && {
+                            cidade: dados.cidade,
+                        }),
+                        ...(dados.uf !== undefined && {
+                            uf: dados.uf,
+                        }),
+                        ...(dados.observacao !== undefined && {
+                            observacao: dados.observacao,
+                        }),
+                    },
+                    transaction,
+                );
+
+                await clientesRepository.criarVinculosAreas(cliente.id, dados.areas, transaction);
+
+                return {
+                    ...cliente,
+                    areas: areasValidas,
+                };
+            });
+        } catch (error) {
+            if (error instanceof AppError) {
+                throw error;
+            }
+
+            if (isCpfDuplicado(error)) {
+                throw erroCpfJaCadastrado();
+            }
+
+            throw error;
+        }
+    }
+
+    async listar(organizacaoId: string | undefined, filtros: FiltrosClientesInput) {
+        if (!organizacaoId) {
+            throw new AppError('Organização não informada.', 400, 'ORGANIZACAO_NAO_INFORMADA');
+        }
+
+        if (filtros.areaNegocioId) {
+            const area = await clientesRepository.buscarAreaAtivaPorId(
+                organizacaoId,
+                filtros.areaNegocioId,
+            );
+
+            if (!area) {
+                throw new AppError(
+                    'Área de negócio não encontrada.',
+                    404,
+                    'AREA_NEGOCIO_NAO_ENCONTRADA',
+                );
+            }
+        }
+
+        const buscaNumerica = filtros.busca?.replace(/\D/g, '');
+
+        const clientes = await clientesRepository.listarPorOrganizacao(organizacaoId, {
+            ...(filtros.busca !== undefined && {
+                busca: filtros.busca,
+            }),
+            ...(buscaNumerica && {
+                buscaNumerica,
+            }),
+            ...(filtros.ativo !== undefined && {
+                ativo: filtros.ativo,
+            }),
+            ...(filtros.areaNegocioId !== undefined && {
+                areaNegocioId: filtros.areaNegocioId,
+            }),
+        });
+
+        const areas = await clientesRepository.listarAreasDosClientes(
+            clientes.map((cliente) => cliente.id),
+        );
+
+        const areasPorCliente = new Map<string, Array<{ id: string; nome: string }>>();
+
+        for (const area of areas) {
+            const areasCliente = areasPorCliente.get(area.clienteId) ?? [];
+
+            areasCliente.push({
+                id: area.id,
+                nome: area.nome,
+            });
+
+            areasPorCliente.set(area.clienteId, areasCliente);
+        }
+
+        return clientes.map((cliente) => ({
+            ...cliente,
+            areas: areasPorCliente.get(cliente.id) ?? [],
+        }));
+    }
+
+    async buscarPorId(organizacaoId: string | undefined, clienteId: string) {
+        if (!organizacaoId) {
+            throw new AppError('Organização não informada.', 400, 'ORGANIZACAO_NAO_INFORMADA');
+        }
+
+        const cliente = await clientesRepository.buscarPorId(organizacaoId, clienteId);
+
+        if (!cliente) {
+            throw new AppError('Cliente não encontrado.', 404, 'CLIENTE_NAO_ENCONTRADO');
+        }
+
+        const areas = await clientesRepository.listarAreasDosClientes([cliente.id]);
+
+        return {
+            ...cliente,
+            areas: areas.map((area) => ({
+                id: area.id,
+                nome: area.nome,
+            })),
+        };
+    }
+
+    async atualizar(
+        organizacaoId: string | undefined,
+        clienteId: string,
+        dados: AtualizarClienteInput,
+    ) {
+        if (!organizacaoId) {
+            throw new AppError('Organização não informada.', 400, 'ORGANIZACAO_NAO_INFORMADA');
+        }
+
+        try {
+            return await clientesRepository.executarEmTransacao(async (transaction) => {
+                const clienteExistente = await clientesRepository.buscarPorId(
+                    organizacaoId,
+                    clienteId,
+                    transaction,
+                );
+
+                if (!clienteExistente) {
+                    throw erroClienteNaoEncontrado();
+                }
+
+                const areasAnteriores =
+                    dados.areas !== undefined
+                        ? await clientesRepository.listarAreasDosClientes([clienteId], transaction)
+                        : [];
+
+                if (dados.areas !== undefined) {
+                    const areasValidas = await clientesRepository.listarAreasValidas(
+                        organizacaoId,
+                        dados.areas,
+                        transaction,
+                    );
+
+                    if (areasValidas.length !== dados.areas.length) {
+                        throw erroAreaNaoEncontrada();
+                    }
+                }
+
+                if (dados.cpf !== undefined && dados.cpf !== null) {
+                    const clienteMesmoCpf = await clientesRepository.buscarPorCpf(
+                        organizacaoId,
+                        dados.cpf,
+                        transaction,
+                        clienteId,
+                    );
+
+                    if (clienteMesmoCpf) {
+                        throw erroCpfJaCadastrado();
+                    }
+                }
+
+                const atualizacao: DadosAtualizacaoCliente = {
+                    ...(dados.nome !== undefined && { nome: dados.nome }),
+                    ...(dados.cpf !== undefined && { cpf: dados.cpf }),
+                    ...(dados.data_nascimento !== undefined && {
+                        data_nascimento: dados.data_nascimento,
+                    }),
+                    ...(dados.telefone !== undefined && { telefone: dados.telefone }),
+                    ...(dados.email !== undefined && { email: dados.email }),
+                    ...(dados.sexo !== undefined && { sexo: dados.sexo }),
+                    ...(dados.cep !== undefined && { cep: dados.cep }),
+                    ...(dados.logradouro !== undefined && { logradouro: dados.logradouro }),
+                    ...(dados.numero !== undefined && { numero: dados.numero }),
+                    ...(dados.complemento !== undefined && { complemento: dados.complemento }),
+                    ...(dados.bairro !== undefined && { bairro: dados.bairro }),
+                    ...(dados.cidade !== undefined && { cidade: dados.cidade }),
+                    ...(dados.uf !== undefined && { uf: dados.uf }),
+                    ...(dados.observacao !== undefined && { observacao: dados.observacao }),
+                };
+
+                if (Object.keys(atualizacao).length > 0) {
+                    await clientesRepository.atualizarCliente(
+                        organizacaoId,
+                        clienteId,
+                        atualizacao,
+                        transaction,
+                    );
+                }
+
+                if (dados.areas !== undefined) {
+                    await clientesRepository.sincronizarAreas(clienteId, dados.areas, transaction);
+                }
+
+                const clienteAtualizado = await clientesRepository.buscarPorId(
+                    organizacaoId,
+                    clienteId,
+                    transaction,
+                );
+
+                if (!clienteAtualizado) {
+                    throw erroClienteNaoEncontrado();
+                }
+
+                const areasAtuais = await clientesRepository.listarAreasDosClientes(
+                    [clienteId],
+                    transaction,
+                );
+
+                return {
+                    cliente: {
+                        ...clienteAtualizado,
+                        areas: areasAtuais.map((area) => ({
+                            id: area.id,
+                            nome: area.nome,
+                        })),
+                    },
+                    auditoria: {
+                        camposAlterados: Object.keys(dados),
+                        ...(dados.areas !== undefined && {
+                            areasAnteriores: areasAnteriores.map((area) => area.id),
+                            areasNovas: areasAtuais.map((area) => area.id),
+                        }),
+                    },
+                };
+            });
+        } catch (error) {
+            if (error instanceof AppError) {
+                throw error;
+            }
+
+            if (isCpfDuplicado(error)) {
+                throw erroCpfJaCadastrado();
+            }
+
+            throw error;
+        }
+    }
+}
+
+export default new ClientesService();
+
+==================================================
+ARQUIVO: C:\Users\Nei Junio\Documents\Github\controle-mensalidades-backend\src\modules\clientes\clientes.validator.ts
+==================================================
+import { z } from 'zod';
+
+import AppError from '../../shared/errors/AppError.js';
+
+const clienteIdSchema = z.uuid();
+
+const textoOpcional = (maximo: number) =>
+    z.preprocess((valor) => {
+        if (typeof valor !== 'string') {
+            return valor;
+        }
+
+        const texto = valor.trim();
+
+        return texto === '' ? undefined : texto;
+    }, z.string().max(maximo).optional());
+
+const cpfSchema = z.preprocess((valor) => {
+    if (typeof valor !== 'string') {
+        return valor;
+    }
+
+    const cpf = valor.replace(/\D/g, '');
+
+    return cpf === '' ? undefined : cpf;
+}, z.string().length(11).optional());
+
+const telefoneSchema = z.preprocess((valor) => {
+    if (typeof valor !== 'string') {
+        return valor;
+    }
+
+    const telefone = valor.replace(/\D/g, '');
+
+    return telefone === '' ? undefined : telefone;
+}, z.string().min(8).max(15).optional());
+
+const emailSchema = z.preprocess((valor) => {
+    if (typeof valor !== 'string') {
+        return valor;
+    }
+
+    const email = valor.trim().toLowerCase();
+
+    return email === '' ? undefined : email;
+}, z.email().max(150).optional());
+
+const dataNascimentoSchema = z.preprocess((valor) => {
+    if (typeof valor !== 'string') {
+        return valor;
+    }
+
+    const data = valor.trim();
+
+    return data === '' ? undefined : data;
+}, z.iso.date().optional());
+
+const cepSchema = z.preprocess((valor) => {
+    if (typeof valor !== 'string') {
+        return valor;
+    }
+
+    const cep = valor.replace(/\D/g, '');
+
+    return cep === '' ? undefined : cep;
+}, z.string().length(8).optional());
+
+const ufSchema = z.preprocess((valor) => {
+    if (typeof valor !== 'string') {
+        return valor;
+    }
+
+    const uf = valor.trim().toUpperCase();
+
+    return uf === '' ? undefined : uf;
+}, z.string().length(2).optional());
+
+const areasSchema = z
+    .array(z.uuid())
+    .min(1)
+    .superRefine((areas, ctx) => {
+        if (new Set(areas).size !== areas.length) {
+            ctx.addIssue({
+                code: 'custom',
+                message: 'Áreas de negócio duplicadas não são permitidas.',
+            });
+        }
+    });
+
+const textoNullable = (maximo: number) =>
+    z.union([z.string().trim().min(1).max(maximo), z.null()]).optional();
+
+const cpfNullableSchema = z
+    .preprocess(
+        (valor) => (typeof valor === 'string' ? valor.replace(/\D/g, '') : valor),
+        z.union([z.string().length(11), z.null()]),
+    )
+    .optional();
+
+const telefoneNullableSchema = z
+    .preprocess(
+        (valor) => (typeof valor === 'string' ? valor.replace(/\D/g, '') : valor),
+        z.union([z.string().min(8).max(15), z.null()]),
+    )
+    .optional();
+
+const emailNullableSchema = z
+    .preprocess(
+        (valor) => (typeof valor === 'string' ? valor.trim().toLowerCase() : valor),
+        z.union([z.email().max(150), z.null()]),
+    )
+    .optional();
+
+const dataNascimentoNullableSchema = z
+    .preprocess(
+        (valor) => (typeof valor === 'string' ? valor.trim() : valor),
+        z.union([z.iso.date(), z.null()]),
+    )
+    .optional();
+
+const cepNullableSchema = z
+    .preprocess(
+        (valor) => (typeof valor === 'string' ? valor.replace(/\D/g, '') : valor),
+        z.union([z.string().length(8), z.null()]),
+    )
+    .optional();
+
+const ufNullableSchema = z
+    .preprocess(
+        (valor) => (typeof valor === 'string' ? valor.trim().toUpperCase() : valor),
+        z.union([z.string().length(2), z.null()]),
+    )
+    .optional();
+
+const criarClienteSchema = z
+    .object({
+        nome: z.string().trim().min(1).max(150),
+        cpf: cpfSchema,
+        data_nascimento: dataNascimentoSchema,
+        telefone: telefoneSchema,
+        email: emailSchema,
+        sexo: textoOpcional(30),
+        cep: cepSchema,
+        logradouro: textoOpcional(150),
+        numero: textoOpcional(20),
+        complemento: textoOpcional(100),
+        bairro: textoOpcional(100),
+        cidade: textoOpcional(100),
+        uf: ufSchema,
+        observacao: textoOpcional(5000),
+        areas: areasSchema,
+    })
+    .strict();
+
+const atualizarClienteSchema = z
+    .object({
+        nome: z.string().trim().min(1).max(150).optional(),
+        cpf: cpfNullableSchema,
+        data_nascimento: dataNascimentoNullableSchema,
+        telefone: telefoneNullableSchema,
+        email: emailNullableSchema,
+        sexo: textoNullable(30),
+        cep: cepNullableSchema,
+        logradouro: textoNullable(150),
+        numero: textoNullable(20),
+        complemento: textoNullable(100),
+        bairro: textoNullable(100),
+        cidade: textoNullable(100),
+        uf: ufNullableSchema,
+        observacao: textoNullable(5000),
+        areas: areasSchema.optional(),
+    })
+    .strict()
+    .refine((dados) => Object.values(dados).some((valor) => valor !== undefined));
+
+const filtrosClientesSchema = z
+    .object({
+        busca: z.string().trim().min(1).max(150).optional(),
+        ativo: z
+            .enum(['true', 'false'])
+            .transform((valor) => valor === 'true')
+            .optional(),
+        areaNegocioId: z.uuid().optional(),
+    })
+    .strict();
+
+export type CriarClienteInput = z.infer<typeof criarClienteSchema>;
+
+export type AtualizarClienteInput = z.infer<typeof atualizarClienteSchema>;
+
+export type FiltrosClientesInput = z.infer<typeof filtrosClientesSchema>;
+
+export function validarClienteId(valor: unknown) {
+    const resultado = clienteIdSchema.safeParse(valor);
+
+    if (!resultado.success) {
+        throw new AppError('Cliente inválido.', 400, 'CLIENTE_ID_INVALIDO');
+    }
+
+    return resultado.data;
+}
+
+export function validarCriacaoCliente(valor: unknown): CriarClienteInput {
+    const resultado = criarClienteSchema.safeParse(valor);
+
+    if (!resultado.success) {
+        throw new AppError('Dados do cliente inválidos.', 400, 'DADOS_CLIENTE_INVALIDOS');
+    }
+
+    return resultado.data;
+}
+
+export function validarAtualizacaoCliente(valor: unknown): AtualizarClienteInput {
+    const resultado = atualizarClienteSchema.safeParse(valor);
+
+    if (!resultado.success) {
+        throw new AppError('Dados do cliente inválidos.', 400, 'DADOS_CLIENTE_INVALIDOS');
+    }
+
+    return resultado.data;
+}
+
+export function validarFiltrosClientes(valor: unknown): FiltrosClientesInput {
+    const resultado = filtrosClientesSchema.safeParse(valor);
+
+    if (!resultado.success) {
+        throw new AppError('Filtros de clientes inválidos.', 400, 'FILTROS_CLIENTES_INVALIDOS');
+    }
+
+    return resultado.data;
+}
+
+==================================================
+ARQUIVO: src/routes/v1/index.ts
+==================================================
+import { Router } from 'express';
+
+import authRoutes from '../../modules/auth/auth.routes.js';
+import healthRoutes from '../../modules/health/health.routes.js';
+import areasNegocioRoutes from '../../modules/areas_negocio/areas_negocio.routes.js';
+import modulosRoutes from '../../modules/modulos/modulos.routes.js';
+import areasModulosRoutes from '../../modules/areas_modulos/areas_modulos.routes.js';
+import contextoRoutes from '../../modules/contexto/contexto.routes.js';
+import organizacoesRoutes from '../../modules/organizacoes/organizacoes.routes.js';
+import usuariosRoutes from '../../modules/usuarios/usuarios.routes.js';
+import clientesRoutes from '../../modules/clientes/clientes.routes.js';
+
+const v1Routes = Router();
+
+v1Routes.use('/auth', authRoutes);
+v1Routes.use('/health', healthRoutes);
+v1Routes.use('/areas-negocio', areasNegocioRoutes);
+v1Routes.use('/modulos', modulosRoutes);
+v1Routes.use('/areas-negocio', areasModulosRoutes);
+v1Routes.use('/contexto', contextoRoutes);
+v1Routes.use('/organizacoes', organizacoesRoutes);
+v1Routes.use('/usuarios', usuariosRoutes);
+v1Routes.use('/clientes', clientesRoutes);
+
+export default v1Routes;

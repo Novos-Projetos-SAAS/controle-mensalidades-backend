@@ -1,10 +1,35 @@
 info:
   name: Criar
   type: http
+  seq: 1
 
 http:
   method: POST
   url: "{{baseUrl}}/clientes"
+  headers:
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "nome": "  João Teste Bruno  ",
+        "cpf": "529.982.247-25",
+        "data_nascimento": "1990-05-20",
+        "telefone": "(18) 99999-9999",
+        "email": "  JOAO.BRUNO@TESTE.COM  ",
+        "sexo": "Masculino",
+        "cep": "16000-000",
+        "logradouro": "  Rua Teste  ",
+        "numero": "  123  ",
+        "complemento": "  Sala 2  ",
+        "bairro": "  Centro  ",
+        "cidade": "  Araçatuba  ",
+        "uf": " sp ",
+        "observacao": "  Cadastro manual pelo Bruno  ",
+        "areas": [
+          "9c27eafe-dea9-45a2-a3c5-b30f18ac4ee4"]
+      }
   auth: inherit
 
 settings:
@@ -12,4 +37,3 @@ settings:
   timeout: 0
   followRedirects: true
   maxRedirects: 5
-​

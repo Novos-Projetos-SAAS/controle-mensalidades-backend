@@ -1,0 +1,22 @@
+info:
+  name: Buscar por nome
+  type: http
+  seq: 1
+
+http:
+  method: GET
+  url: "{{baseUrl}}/clientes?busca=João"
+  headers:
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+  params:
+    - name: busca
+      value: João
+      type: query
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,0 +1,24 @@
+info:
+  name: Atualizar com cliente de outra organização
+  type: http
+  seq: 18
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/clientes/{{cliente_outra_org_id}}"
+  headers:
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "nome": "Tentativa Cross Tenant"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
