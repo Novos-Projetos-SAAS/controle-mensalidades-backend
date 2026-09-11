@@ -1,3 +1,5 @@
+import type { Knex } from 'knex';
+
 import AppError from '../../shared/errors/AppError.js';
 
 import clientesRepository from './clientes.repository.js';
@@ -345,6 +347,82 @@ class ClientesService {
 
             throw error;
         }
+    }
+
+    async inativar(organizacaoId: string | undefined, clienteId: string) {
+        if (!organizacaoId) {
+            throw new AppError('Organização não informada.', 400, 'ORGANIZACAO_NAO_INFORMADA');
+        }
+
+        return clientesRepository.executarEmTransacao(async (transaction) => {
+            const cliente = await clientesRepository.buscarPorId(
+                organizacaoId,
+                clienteId,
+                transaction,
+                true,
+            );
+
+            if (!cliente) {
+                throw erroClienteNaoEncontrado();
+            }
+
+            if (!cliente.ativo) {
+                throw new AppError('Cliente já está inativo.', 409, 'CLIENTE_JA_INATIVO');
+            }
+
+            await clientesRepository.inativarCliente(organizacaoId, clienteId, transaction);
+
+            return this.buscarEstadoFinalLifecycle(organizacaoId, clienteId, transaction);
+        });
+    }
+
+    async reativar(organizacaoId: string | undefined, clienteId: string) {
+        if (!organizacaoId) {
+            throw new AppError('Organização não informada.', 400, 'ORGANIZACAO_NAO_INFORMADA');
+        }
+
+        return clientesRepository.executarEmTransacao(async (transaction) => {
+            const cliente = await clientesRepository.buscarPorId(
+                organizacaoId,
+                clienteId,
+                transaction,
+                true,
+            );
+
+            if (!cliente) {
+                throw erroClienteNaoEncontrado();
+            }
+
+            if (cliente.ativo) {
+                throw new AppError('Cliente já está ativo.', 409, 'CLIENTE_JA_ATIVO');
+            }
+
+            await clientesRepository.reativarCliente(organizacaoId, clienteId, transaction);
+
+            return this.buscarEstadoFinalLifecycle(organizacaoId, clienteId, transaction);
+        });
+    }
+
+    private async buscarEstadoFinalLifecycle(
+        organizacaoId: string,
+        clienteId: string,
+        transaction: Knex.Transaction,
+    ) {
+        const cliente = await clientesRepository.buscarPorId(organizacaoId, clienteId, transaction);
+
+        if (!cliente) {
+            throw erroClienteNaoEncontrado();
+        }
+
+        const areas = await clientesRepository.listarAreasDosClientes([clienteId], transaction);
+
+        return {
+            ...cliente,
+            areas: areas.map((area) => ({
+                id: area.id,
+                nome: area.nome,
+            })),
+        };
     }
 }
 

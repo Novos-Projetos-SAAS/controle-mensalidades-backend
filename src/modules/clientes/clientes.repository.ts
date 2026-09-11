@@ -327,6 +327,32 @@ class ClientesRepository {
             .update(dados);
     }
 
+    async inativarCliente(organizacaoId: string, clienteId: string, transaction: Knex.Transaction) {
+        await transaction('clientes')
+            .where({
+                id: clienteId,
+                organizacao_id: organizacaoId,
+            })
+            .whereNull('deletado_em')
+            .update({
+                ativo: false,
+                inativado_em: transaction.fn.now(),
+            });
+    }
+
+    async reativarCliente(organizacaoId: string, clienteId: string, transaction: Knex.Transaction) {
+        await transaction('clientes')
+            .where({
+                id: clienteId,
+                organizacao_id: organizacaoId,
+            })
+            .whereNull('deletado_em')
+            .update({
+                ativo: true,
+                inativado_em: null,
+            });
+    }
+
     async sincronizarAreas(clienteId: string, areasIds: string[], transaction: Knex.Transaction) {
         const vinculosExistentes = await transaction('clientes_areas')
             .select('area_negocio_id')

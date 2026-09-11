@@ -19,6 +19,12 @@ clientesRoutes.get('/', clientesController.listar);
 // ROTA GET /clientes/:clienteId
 clientesRoutes.get('/:clienteId', clientesController.buscarPorId);
 
+// ROTA PATCH /clientes/:clienteId/inativar
+clientesRoutes.patch('/:clienteId/inativar', clientesController.inativar);
+
+// ROTA PATCH /clientes/:clienteId/reativar
+clientesRoutes.patch('/:clienteId/reativar', clientesController.reativar);
+
 // ROTA PATCH /clientes/:clienteId
 clientesRoutes.patch('/:clienteId', clientesController.atualizar);
 

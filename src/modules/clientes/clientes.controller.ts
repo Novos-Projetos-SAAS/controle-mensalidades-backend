@@ -12,6 +12,46 @@ import {
     validarFiltrosClientes,
 } from './clientes.validator.js';
 
+type AcaoLifecycleCliente = 'CLIENTE.INATIVADO' | 'CLIENTE.REATIVADO';
+
+async function registrarAuditoriaLifecycle(
+    req: Request,
+    clienteId: string,
+    acao: AcaoLifecycleCliente,
+    estadoAnterior: 'ATIVO' | 'INATIVO',
+    estadoNovo: 'ATIVO' | 'INATIVO',
+) {
+    if (!req.auth) {
+        return;
+    }
+
+    try {
+        const userAgent = req.get('user-agent');
+        const ip = req.ip;
+
+        await auditoriaService.registrar({
+            organizacaoId: req.auth.organizacaoId,
+            usuarioId: req.auth.usuarioId,
+            acao,
+            recurso: 'CLIENTE',
+            recursoId: clienteId,
+            dadosContexto: {
+                clienteId,
+                estadoAnterior,
+                estadoNovo,
+                requestId: req.requestId,
+            },
+            ...(ip ? { ip } : {}),
+            ...(userAgent ? { userAgent } : {}),
+        });
+    } catch (auditoriaError) {
+        console.error(
+            `Falha ao registrar auditoria de lifecycle de cliente. Request ID: ${req.requestId}`,
+            auditoriaError,
+        );
+    }
+}
+
 class ClientesController {
     async criar(req: Request, res: Response, next: NextFunction) {
         try {
@@ -141,6 +181,60 @@ class ClientesController {
                 status: 'success',
                 message: 'Cliente atualizado com sucesso.',
                 data: resultado.cliente,
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async inativar(req: Request, res: Response, next: NextFunction) {
+        try {
+            if (!req.auth) {
+                throw new AppError('Autenticação necessária.', 401, 'AUTENTICACAO_NECESSARIA');
+            }
+
+            const clienteId = validarClienteId(req.params.clienteId);
+            const cliente = await clientesService.inativar(req.auth.organizacaoId, clienteId);
+
+            await registrarAuditoriaLifecycle(
+                req,
+                clienteId,
+                'CLIENTE.INATIVADO',
+                'ATIVO',
+                'INATIVO',
+            );
+
+            return res.status(200).json({
+                status: 'success',
+                message: 'Cliente inativado com sucesso.',
+                data: cliente,
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async reativar(req: Request, res: Response, next: NextFunction) {
+        try {
+            if (!req.auth) {
+                throw new AppError('Autenticação necessária.', 401, 'AUTENTICACAO_NECESSARIA');
+            }
+
+            const clienteId = validarClienteId(req.params.clienteId);
+            const cliente = await clientesService.reativar(req.auth.organizacaoId, clienteId);
+
+            await registrarAuditoriaLifecycle(
+                req,
+                clienteId,
+                'CLIENTE.REATIVADO',
+                'INATIVO',
+                'ATIVO',
+            );
+
+            return res.status(200).json({
+                status: 'success',
+                message: 'Cliente reativado com sucesso.',
+                data: cliente,
             });
         } catch (error) {
             next(error);

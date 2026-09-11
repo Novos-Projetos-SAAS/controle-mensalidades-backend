@@ -8,6 +8,7 @@ import request from 'supertest';
 import app from '../../../src/app.js';
 import { env } from '../../../src/configuration/env.js';
 import connection from '../../../src/database/connection.js';
+import auditoriaService from '../../../src/modules/auditoria/auditoria.service.js';
 
 const organizacaoAId = crypto.randomUUID();
 const organizacaoBId = crypto.randomUUID();
@@ -196,6 +197,7 @@ async function criarClienteTeste(
         uf?: string;
         observacao?: string;
         ativo?: boolean;
+        inativadoEm?: Date;
         deletadoEm?: Date;
         areas?: string[];
     },
@@ -220,6 +222,7 @@ async function criarClienteTeste(
         uf: dados.uf ?? null,
         observacao: dados.observacao ?? null,
         ativo: dados.ativo ?? true,
+        inativado_em: dados.inativadoEm ?? null,
         deletado_em: dados.deletadoEm ?? null,
     });
 
@@ -1362,4 +1365,365 @@ test('PATCH deve registrar auditoria sem valores de dados pessoais', async () =>
     ]) {
         assert.equal(contextoSerializado.includes(valorPessoal), false);
     }
+});
+
+test('ADMINISTRADOR deve inativar cliente preservando cadastro e áreas com auditoria segura', async () => {
+    const clienteId = await criarClienteTeste(organizacaoAId, {
+        nome: 'Cliente Lifecycle Completo',
+        cpf: '12345678901',
+        dataNascimento: '1990-05-20',
+        telefone: '18999998888',
+        email: 'lifecycle@teste.com',
+        logradouro: 'Rua Preservada',
+        observacao: 'Observação preservada',
+        areas: [areaA1Id, areaA2Id],
+    });
+
+    const response = await request(app)
+        .patch(`/api/v1/clientes/${clienteId}/inativar`)
+        .set('Cookie', cookieDoUsuario(adminAId))
+        .set('x-organizacao-id', organizacaoAId);
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.status, 'success');
+    assert.equal(response.body.message, 'Cliente inativado com sucesso.');
+    assert.equal(response.body.data.ativo, false);
+    assert.equal(Number.isNaN(Date.parse(response.body.data.inativado_em)), false);
+    assert.equal(response.body.data.nome, 'Cliente Lifecycle Completo');
+    assert.equal(response.body.data.cpf, '12345678901');
+    assert.equal(response.body.data.telefone, '18999998888');
+    assert.equal(response.body.data.email, 'lifecycle@teste.com');
+    assert.equal(response.body.data.logradouro, 'Rua Preservada');
+    assert.equal(response.body.data.observacao, 'Observação preservada');
+    assert.deepEqual(
+        response.body.data.areas.map((area: { id: string }) => area.id).sort(),
+        [areaA1Id, areaA2Id].sort(),
+    );
+    assert.equal('organizacao_id' in response.body.data, false);
+    assert.equal('deletado_em' in response.body.data, false);
+
+    const vinculos = await connection('clientes_areas')
+        .select('area_negocio_id', 'ativo', 'deletado_em')
+        .where('cliente_id', clienteId);
+
+    assert.equal(vinculos.length, 2);
+    assert.equal(
+        vinculos.every((vinculo) => vinculo.ativo && vinculo.deletado_em === null),
+        true,
+    );
+
+    const auditoria = await connection('registros_auditoria')
+        .where({
+            acao: 'CLIENTE.INATIVADO',
+            recurso: 'CLIENTE',
+            recurso_id: clienteId,
+        })
+        .first();
+
+    assert.ok(auditoria);
+    assert.equal(auditoria.usuario_id, adminAId);
+    assert.equal(auditoria.organizacao_id, organizacaoAId);
+    assert.deepEqual(auditoria.dados_contexto.estadoAnterior, 'ATIVO');
+    assert.deepEqual(auditoria.dados_contexto.estadoNovo, 'INATIVO');
+    assert.equal(auditoria.dados_contexto.clienteId, clienteId);
+    assert.equal(typeof auditoria.dados_contexto.requestId, 'string');
+
+    const contexto = JSON.stringify(auditoria.dados_contexto);
+
+    for (const dadoPessoal of [
+        '12345678901',
+        '1990-05-20',
+        '18999998888',
+        'lifecycle@teste.com',
+        'Rua Preservada',
+        'Observação preservada',
+    ]) {
+        assert.equal(contexto.includes(dadoPessoal), false);
+    }
+});
+
+test('OPERADOR deve poder inativar cliente', async () => {
+    const clienteId = await criarClienteTeste(organizacaoAId, {
+        nome: 'Cliente Inativado pelo Operador',
+        areas: [areaA1Id],
+    });
+
+    const response = await request(app)
+        .patch(`/api/v1/clientes/${clienteId}/inativar`)
+        .set('Cookie', cookieDoUsuario(operadorAId))
+        .set('x-organizacao-id', organizacaoAId);
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.data.ativo, false);
+
+    const auditoria = await connection('registros_auditoria')
+        .where({ acao: 'CLIENTE.INATIVADO', recurso_id: clienteId })
+        .first();
+
+    assert.equal(auditoria.usuario_id, operadorAId);
+});
+
+test('inativação deve rejeitar UUID inválido, outro tenant e cliente soft-deleted', async () => {
+    const clienteOutroTenantId = await criarClienteTeste(organizacaoBId, {
+        nome: 'Cliente Inativação Tenant B',
+        areas: [areaBId],
+    });
+    const clienteDeletadoId = await criarClienteTeste(organizacaoAId, {
+        nome: 'Cliente Inativação Deletado',
+        deletadoEm: new Date(),
+        areas: [areaA1Id],
+    });
+    const cabecalhos = {
+        Cookie: cookieDoUsuario(adminAId),
+        'x-organizacao-id': organizacaoAId,
+    };
+    const idInvalido = await request(app)
+        .patch('/api/v1/clientes/id-invalido/inativar')
+        .set(cabecalhos);
+    const outroTenant = await request(app)
+        .patch(`/api/v1/clientes/${clienteOutroTenantId}/inativar`)
+        .set(cabecalhos);
+    const deletado = await request(app)
+        .patch(`/api/v1/clientes/${clienteDeletadoId}/inativar`)
+        .set(cabecalhos);
+
+    assert.equal(idInvalido.status, 400);
+    assert.equal(idInvalido.body.codigo, 'CLIENTE_ID_INVALIDO');
+
+    for (const response of [outroTenant, deletado]) {
+        assert.equal(response.status, 404);
+        assert.equal(response.body.codigo, 'CLIENTE_NAO_ENCONTRADO');
+        assert.equal(response.body.mensagem, 'Cliente não encontrado.');
+    }
+});
+
+test('inativação deve rejeitar cliente já inativo', async () => {
+    const clienteId = await criarClienteTeste(organizacaoAId, {
+        nome: 'Cliente Já Inativo',
+        ativo: false,
+        inativadoEm: new Date(),
+        areas: [areaA1Id],
+    });
+
+    const response = await request(app)
+        .patch(`/api/v1/clientes/${clienteId}/inativar`)
+        .set('Cookie', cookieDoUsuario(adminAId))
+        .set('x-organizacao-id', organizacaoAId);
+
+    assert.equal(response.status, 409);
+    assert.equal(response.body.codigo, 'CLIENTE_JA_INATIVO');
+    assert.equal(response.body.mensagem, 'Cliente já está inativo.');
+});
+
+test('ADMINISTRADOR deve reativar cliente preservando cadastro e áreas com auditoria segura', async () => {
+    const clienteId = await criarClienteTeste(organizacaoAId, {
+        nome: 'Cliente para Reativação',
+        cpf: '98765432100',
+        telefone: '18988887777',
+        email: 'reativacao@teste.com',
+        logradouro: 'Rua Mantida',
+        observacao: 'Histórico mantido',
+        ativo: false,
+        inativadoEm: new Date('2026-01-10T12:00:00.000Z'),
+        areas: [areaA1Id, areaA2Id],
+    });
+
+    const response = await request(app)
+        .patch(`/api/v1/clientes/${clienteId}/reativar`)
+        .set('Cookie', cookieDoUsuario(adminAId))
+        .set('x-organizacao-id', organizacaoAId);
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.status, 'success');
+    assert.equal(response.body.message, 'Cliente reativado com sucesso.');
+    assert.equal(response.body.data.ativo, true);
+    assert.equal(response.body.data.inativado_em, null);
+    assert.equal(response.body.data.nome, 'Cliente para Reativação');
+    assert.equal(response.body.data.cpf, '98765432100');
+    assert.equal(response.body.data.telefone, '18988887777');
+    assert.equal(response.body.data.email, 'reativacao@teste.com');
+    assert.deepEqual(
+        response.body.data.areas.map((area: { id: string }) => area.id).sort(),
+        [areaA1Id, areaA2Id].sort(),
+    );
+    assert.equal('organizacao_id' in response.body.data, false);
+    assert.equal('deletado_em' in response.body.data, false);
+
+    const vinculos = await connection('clientes_areas').where('cliente_id', clienteId);
+
+    assert.equal(vinculos.length, 2);
+    assert.equal(
+        vinculos.every((vinculo) => vinculo.ativo && vinculo.deletado_em === null),
+        true,
+    );
+
+    const auditoria = await connection('registros_auditoria')
+        .where({
+            acao: 'CLIENTE.REATIVADO',
+            recurso: 'CLIENTE',
+            recurso_id: clienteId,
+        })
+        .first();
+
+    assert.ok(auditoria);
+    assert.equal(auditoria.usuario_id, adminAId);
+    assert.equal(auditoria.organizacao_id, organizacaoAId);
+    assert.equal(auditoria.dados_contexto.estadoAnterior, 'INATIVO');
+    assert.equal(auditoria.dados_contexto.estadoNovo, 'ATIVO');
+    assert.equal(auditoria.dados_contexto.clienteId, clienteId);
+
+    const contexto = JSON.stringify(auditoria.dados_contexto);
+
+    for (const dadoPessoal of [
+        '98765432100',
+        '18988887777',
+        'reativacao@teste.com',
+        'Rua Mantida',
+        'Histórico mantido',
+    ]) {
+        assert.equal(contexto.includes(dadoPessoal), false);
+    }
+});
+
+test('OPERADOR deve poder reativar cliente', async () => {
+    const clienteId = await criarClienteTeste(organizacaoAId, {
+        nome: 'Cliente Reativado pelo Operador',
+        ativo: false,
+        inativadoEm: new Date(),
+        areas: [areaA1Id],
+    });
+
+    const response = await request(app)
+        .patch(`/api/v1/clientes/${clienteId}/reativar`)
+        .set('Cookie', cookieDoUsuario(operadorAId))
+        .set('x-organizacao-id', organizacaoAId);
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.data.ativo, true);
+    assert.equal(response.body.data.inativado_em, null);
+
+    const auditoria = await connection('registros_auditoria')
+        .where({ acao: 'CLIENTE.REATIVADO', recurso_id: clienteId })
+        .first();
+
+    assert.equal(auditoria.usuario_id, operadorAId);
+});
+
+test('reativação deve rejeitar outro tenant e cliente soft-deleted', async () => {
+    const clienteOutroTenantId = await criarClienteTeste(organizacaoBId, {
+        nome: 'Cliente Reativação Tenant B',
+        ativo: false,
+        inativadoEm: new Date(),
+        areas: [areaBId],
+    });
+    const clienteDeletadoId = await criarClienteTeste(organizacaoAId, {
+        nome: 'Cliente Reativação Deletado',
+        ativo: false,
+        inativadoEm: new Date(),
+        deletadoEm: new Date(),
+        areas: [areaA1Id],
+    });
+    const cabecalhos = {
+        Cookie: cookieDoUsuario(adminAId),
+        'x-organizacao-id': organizacaoAId,
+    };
+
+    for (const clienteId of [clienteOutroTenantId, clienteDeletadoId]) {
+        const response = await request(app)
+            .patch(`/api/v1/clientes/${clienteId}/reativar`)
+            .set(cabecalhos);
+
+        assert.equal(response.status, 404);
+        assert.equal(response.body.codigo, 'CLIENTE_NAO_ENCONTRADO');
+    }
+});
+
+test('reativação deve rejeitar cliente já ativo', async () => {
+    const clienteId = await criarClienteTeste(organizacaoAId, {
+        nome: 'Cliente Já Ativo',
+        areas: [areaA1Id],
+    });
+
+    const response = await request(app)
+        .patch(`/api/v1/clientes/${clienteId}/reativar`)
+        .set('Cookie', cookieDoUsuario(adminAId))
+        .set('x-organizacao-id', organizacaoAId);
+
+    assert.equal(response.status, 409);
+    assert.equal(response.body.codigo, 'CLIENTE_JA_ATIVO');
+    assert.equal(response.body.mensagem, 'Cliente já está ativo.');
+});
+
+test('lifecycle deve permanecer disponível quando a auditoria falhar', async () => {
+    const clienteId = await criarClienteTeste(organizacaoAId, {
+        nome: 'Cliente Auditoria Fail Open',
+        areas: [areaA1Id],
+    });
+    const registrarOriginal = auditoriaService.registrar;
+
+    auditoriaService.registrar = async () => {
+        throw new Error('Falha simulada na auditoria de lifecycle.');
+    };
+
+    try {
+        const response = await request(app)
+            .patch(`/api/v1/clientes/${clienteId}/inativar`)
+            .set('Cookie', cookieDoUsuario(adminAId))
+            .set('x-organizacao-id', organizacaoAId);
+
+        assert.equal(response.status, 200);
+        assert.equal(response.body.data.ativo, false);
+
+        const cliente = await connection('clientes')
+            .select('ativo', 'inativado_em')
+            .where('id', clienteId)
+            .first();
+
+        assert.equal(cliente.ativo, false);
+        assert.ok(cliente.inativado_em);
+    } finally {
+        auditoriaService.registrar = registrarOriginal;
+    }
+});
+
+test('lifecycle concorrente deve serializar operações no mesmo cliente', async () => {
+    const clienteId = await criarClienteTeste(organizacaoAId, {
+        nome: 'Cliente Lifecycle Concorrente',
+        areas: [areaA1Id],
+    });
+    const requisicaoLifecycle = (acao: 'inativar' | 'reativar') =>
+        request(app)
+            .patch(`/api/v1/clientes/${clienteId}/${acao}`)
+            .set('Cookie', cookieDoUsuario(adminAId))
+            .set('x-organizacao-id', organizacaoAId);
+
+    const inativacoes = await Promise.all([
+        requisicaoLifecycle('inativar'),
+        requisicaoLifecycle('inativar'),
+    ]);
+
+    assert.deepEqual(inativacoes.map((response) => response.status).sort(), [200, 409]);
+
+    const estadoInativo = await connection('clientes')
+        .select('ativo', 'inativado_em')
+        .where('id', clienteId)
+        .first();
+
+    assert.equal(estadoInativo.ativo, false);
+    assert.ok(estadoInativo.inativado_em);
+
+    const reativacoes = await Promise.all([
+        requisicaoLifecycle('reativar'),
+        requisicaoLifecycle('reativar'),
+    ]);
+
+    assert.deepEqual(reativacoes.map((response) => response.status).sort(), [200, 409]);
+
+    const estadoAtivo = await connection('clientes')
+        .select('ativo', 'inativado_em')
+        .where('id', clienteId)
+        .first();
+
+    assert.equal(estadoAtivo.ativo, true);
+    assert.equal(estadoAtivo.inativado_em, null);
 });

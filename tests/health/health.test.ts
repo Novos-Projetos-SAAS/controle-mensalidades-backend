@@ -38,7 +38,10 @@ test('GET /docs deve publicar a interface Swagger', async () => {
     const resposta = await request(app).get('/docs');
 
     assert.equal(resposta.status, 200);
-    assert.match(resposta.headers['content-type'], /text\/html/);
+    const contentType = resposta.headers['content-type'];
+
+    assert.ok(contentType);
+    assert.match(contentType, /text\/html/);
     assert.match(resposta.text, /SwaggerUIBundle/);
 });
 

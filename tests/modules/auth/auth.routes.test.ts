@@ -66,6 +66,14 @@ function obterJwtSecretTeste(): string {
     return jwtSecret;
 }
 
+async function contarAuditoriasLogout(): Promise<number> {
+    const resultado = await connection('registros_auditoria')
+        .where('acao', 'AUTH.LOGOUT')
+        .count('* as total');
+
+    return Number(resultado[0]?.total ?? 0);
+}
+
 before(async () => {
     await limparDadosTeste();
 
@@ -684,17 +692,13 @@ test('POST /api/v1/auth/logout deve ser idempotente sem cookie ou headers de con
 });
 
 test('POST /api/v1/auth/logout deve aceitar token inválido sem registrar identidade falsa', async () => {
-    const [{ total: totalAntes }] = await connection('registros_auditoria')
-        .where('acao', 'AUTH.LOGOUT')
-        .count('* as total');
+    const totalAntes = await contarAuditoriasLogout();
 
     const response = await request(app)
         .post('/api/v1/auth/logout')
         .set('Cookie', ['token=token-invalido']);
 
-    const [{ total: totalDepois }] = await connection('registros_auditoria')
-        .where('acao', 'AUTH.LOGOUT')
-        .count('* as total');
+    const totalDepois = await contarAuditoriasLogout();
 
     assert.equal(response.status, 200);
     assert.equal(response.body.status, 'success');
@@ -710,17 +714,13 @@ test('POST /api/v1/auth/logout deve aceitar token expirado sem registrar identid
         expiresIn: -1,
     });
 
-    const [{ total: totalAntes }] = await connection('registros_auditoria')
-        .where('acao', 'AUTH.LOGOUT')
-        .count('* as total');
+    const totalAntes = await contarAuditoriasLogout();
 
     const response = await request(app)
         .post('/api/v1/auth/logout')
         .set('Cookie', [`token=${tokenExpirado}`]);
 
-    const [{ total: totalDepois }] = await connection('registros_auditoria')
-        .where('acao', 'AUTH.LOGOUT')
-        .count('* as total');
+    const totalDepois = await contarAuditoriasLogout();
 
     assert.equal(response.status, 200);
     assert.equal(response.body.status, 'success');
