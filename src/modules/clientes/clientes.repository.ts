@@ -86,6 +86,8 @@ type ClienteResumo = {
 export type ClienteDetalhe = ClienteCriado & {
     aceite_whatsapp_em: Date | null;
     origem_aceite_whatsapp: string | null;
+    opt_out_whatsapp_em: Date | null;
+    origem_opt_out_whatsapp: string | null;
     inativado_em: Date | null;
 };
 
@@ -273,6 +275,8 @@ class ClientesRepository {
                 'c.aceite_whatsapp',
                 'c.aceite_whatsapp_em',
                 'c.origem_aceite_whatsapp',
+                'c.opt_out_whatsapp_em',
+                'c.origem_opt_out_whatsapp',
                 'c.ativo',
                 'c.inativado_em',
             )
@@ -350,6 +354,63 @@ class ClientesRepository {
             .update({
                 ativo: true,
                 inativado_em: null,
+            });
+    }
+
+    async registrarAceiteWhatsapp(
+        organizacaoId: string,
+        clienteId: string,
+        origem: string,
+        transaction: Knex.Transaction,
+    ): Promise<void> {
+        await transaction('clientes')
+            .where({
+                id: clienteId,
+                organizacao_id: organizacaoId,
+            })
+            .whereNull('deletado_em')
+            .update({
+                aceite_whatsapp: true,
+                aceite_whatsapp_em: transaction.fn.now(),
+                origem_aceite_whatsapp: origem,
+            });
+    }
+
+    async registrarOptOutWhatsapp(
+        organizacaoId: string,
+        clienteId: string,
+        origem: string,
+        transaction: Knex.Transaction,
+    ): Promise<void> {
+        await transaction('clientes')
+            .where({
+                id: clienteId,
+                organizacao_id: organizacaoId,
+            })
+            .whereNull('deletado_em')
+            .update({
+                aceite_whatsapp: false,
+                opt_out_whatsapp_em: transaction.fn.now(),
+                origem_opt_out_whatsapp: origem,
+            });
+    }
+
+    async cancelarTarefasWhatsappPendentes(
+        organizacaoId: string,
+        clienteId: string,
+        transaction: Knex.Transaction,
+    ): Promise<number> {
+        return transaction('tarefas_mensagem')
+            .where({
+                organizacao_id: organizacaoId,
+                cliente_id: clienteId,
+                status: 'PENDENTE',
+            })
+            .whereNull('deletado_em')
+            .update({
+                status: 'CANCELADA',
+                cancelado_em: transaction.fn.now(),
+                motivo_cancelamento: 'OPT_OUT_WHATSAPP',
             });
     }
 

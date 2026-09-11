@@ -8,11 +8,13 @@ import clientesService from './clientes.service.js';
 import {
     validarAtualizacaoCliente,
     validarClienteId,
+    validarConsentimentoWhatsapp,
     validarCriacaoCliente,
     validarFiltrosClientes,
 } from './clientes.validator.js';
 
 type AcaoLifecycleCliente = 'CLIENTE.INATIVADO' | 'CLIENTE.REATIVADO';
+type AcaoConsentimentoWhatsapp = 'CLIENTE.WHATSAPP_ACEITO' | 'CLIENTE.WHATSAPP_REVOGADO';
 
 async function registrarAuditoriaLifecycle(
     req: Request,
@@ -47,6 +49,46 @@ async function registrarAuditoriaLifecycle(
     } catch (auditoriaError) {
         console.error(
             `Falha ao registrar auditoria de lifecycle de cliente. Request ID: ${req.requestId}`,
+            auditoriaError,
+        );
+    }
+}
+
+async function registrarAuditoriaConsentimentoWhatsapp(
+    req: Request,
+    clienteId: string,
+    acao: AcaoConsentimentoWhatsapp,
+    aceiteAnterior: boolean,
+    aceiteNovo: boolean,
+    tarefasCanceladas?: number,
+) {
+    if (!req.auth) {
+        return;
+    }
+
+    try {
+        const userAgent = req.get('user-agent');
+        const ip = req.ip;
+
+        await auditoriaService.registrar({
+            organizacaoId: req.auth.organizacaoId,
+            usuarioId: req.auth.usuarioId,
+            acao,
+            recurso: 'CLIENTE',
+            recursoId: clienteId,
+            dadosContexto: {
+                clienteId,
+                aceiteAnterior,
+                aceiteNovo,
+                ...(tarefasCanceladas !== undefined && { tarefasCanceladas }),
+                requestId: req.requestId,
+            },
+            ...(ip ? { ip } : {}),
+            ...(userAgent ? { userAgent } : {}),
+        });
+    } catch (auditoriaError) {
+        console.error(
+            `Falha ao registrar auditoria de consentimento de WhatsApp. Request ID: ${req.requestId}`,
             auditoriaError,
         );
     }
@@ -235,6 +277,71 @@ class ClientesController {
                 status: 'success',
                 message: 'Cliente reativado com sucesso.',
                 data: cliente,
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async aceitarWhatsapp(req: Request, res: Response, next: NextFunction) {
+        try {
+            if (!req.auth) {
+                throw new AppError('Autenticação necessária.', 401, 'AUTENTICACAO_NECESSARIA');
+            }
+
+            const clienteId = validarClienteId(req.params.clienteId);
+            const { origem } = validarConsentimentoWhatsapp(req.body);
+            const resultado = await clientesService.aceitarWhatsapp(
+                req.auth.organizacaoId,
+                clienteId,
+                origem,
+            );
+
+            await registrarAuditoriaConsentimentoWhatsapp(
+                req,
+                clienteId,
+                'CLIENTE.WHATSAPP_ACEITO',
+                false,
+                true,
+            );
+
+            return res.status(200).json({
+                status: 'success',
+                message: 'Aceite de WhatsApp registrado com sucesso.',
+                data: resultado.cliente,
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async revogarWhatsapp(req: Request, res: Response, next: NextFunction) {
+        try {
+            if (!req.auth) {
+                throw new AppError('Autenticação necessária.', 401, 'AUTENTICACAO_NECESSARIA');
+            }
+
+            const clienteId = validarClienteId(req.params.clienteId);
+            const { origem } = validarConsentimentoWhatsapp(req.body);
+            const resultado = await clientesService.revogarWhatsapp(
+                req.auth.organizacaoId,
+                clienteId,
+                origem,
+            );
+
+            await registrarAuditoriaConsentimentoWhatsapp(
+                req,
+                clienteId,
+                'CLIENTE.WHATSAPP_REVOGADO',
+                true,
+                false,
+                resultado.tarefasCanceladas,
+            );
+
+            return res.status(200).json({
+                status: 'success',
+                message: 'Aceite de WhatsApp revogado com sucesso.',
+                data: resultado.cliente,
             });
         } catch (error) {
             next(error);

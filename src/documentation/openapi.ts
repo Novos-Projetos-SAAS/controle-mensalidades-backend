@@ -612,6 +612,44 @@ const openApiDocument = {
                 },
             },
         },
+        '/clientes/{clienteId}/whatsapp/aceitar': {
+            patch: {
+                tags: ['Clientes'],
+                summary: 'Registrar aceite de WhatsApp',
+                description:
+                    'Registra o consentimento atual do cliente e preserva o histórico de opt-out. Permitido para ADMINISTRADOR e OPERADOR, inclusive para cliente inativo.',
+                operationId: 'aceitarWhatsappCliente',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao, parametroClientePath],
+                requestBody: corpoJson(referencia('ConsentimentoWhatsappRequest')),
+                responses: {
+                    '200': respostaJson(
+                        'Aceite de WhatsApp registrado.',
+                        referencia('RespostaConsentimentoWhatsapp'),
+                    ),
+                    ...erros('400', '401', '403', '404', '409'),
+                },
+            },
+        },
+        '/clientes/{clienteId}/whatsapp/revogar': {
+            patch: {
+                tags: ['Clientes'],
+                summary: 'Revogar aceite de WhatsApp',
+                description:
+                    'Registra o opt-out e cancela atomicamente as tarefas de mensagem pendentes do cliente. Preserva o histórico do último aceite. Permitido para ADMINISTRADOR e OPERADOR, inclusive para cliente inativo.',
+                operationId: 'revogarWhatsappCliente',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao, parametroClientePath],
+                requestBody: corpoJson(referencia('ConsentimentoWhatsappRequest')),
+                responses: {
+                    '200': respostaJson(
+                        'Aceite de WhatsApp revogado.',
+                        referencia('RespostaConsentimentoWhatsapp'),
+                    ),
+                    ...erros('400', '401', '403', '404', '409'),
+                },
+            },
+        },
     },
     components: {
         headers: {
@@ -970,6 +1008,8 @@ const openApiDocument = {
                     ...Object.keys(camposCliente),
                     'aceite_whatsapp_em',
                     'origem_aceite_whatsapp',
+                    'opt_out_whatsapp_em',
+                    'origem_opt_out_whatsapp',
                     'inativado_em',
                     'areas',
                 ],
@@ -977,6 +1017,8 @@ const openApiDocument = {
                     ...camposCliente,
                     aceite_whatsapp_em: { type: ['string', 'null'], format: 'date-time' },
                     origem_aceite_whatsapp: { type: ['string', 'null'], maxLength: 50 },
+                    opt_out_whatsapp_em: { type: ['string', 'null'], format: 'date-time' },
+                    origem_opt_out_whatsapp: { type: ['string', 'null'], maxLength: 50 },
                     inativado_em: { type: ['string', 'null'], format: 'date-time' },
                     areas: { type: 'array', items: referencia('AreaCliente') },
                 },
@@ -1009,6 +1051,51 @@ const openApiDocument = {
                         uniqueItems: true,
                         items: { type: 'string', format: 'uuid' },
                     },
+                },
+            },
+            ConsentimentoWhatsappRequest: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['origem'],
+                properties: {
+                    origem: {
+                        type: 'string',
+                        minLength: 1,
+                        pattern: '^\\s*(?:\\S(?:[\\s\\S]{0,48}\\S)?)\\s*$',
+                        description:
+                            'Origem livre do consentimento ou opt-out. Após trim, deve possuir entre 1 e 50 caracteres.',
+                        example: 'PRESENCIAL',
+                    },
+                },
+            },
+            EstadoConsentimentoWhatsapp: {
+                type: 'object',
+                additionalProperties: false,
+                required: [
+                    'id',
+                    'aceite_whatsapp',
+                    'aceite_whatsapp_em',
+                    'origem_aceite_whatsapp',
+                    'opt_out_whatsapp_em',
+                    'origem_opt_out_whatsapp',
+                ],
+                properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    aceite_whatsapp: { type: 'boolean' },
+                    aceite_whatsapp_em: { type: ['string', 'null'], format: 'date-time' },
+                    origem_aceite_whatsapp: { type: ['string', 'null'], maxLength: 50 },
+                    opt_out_whatsapp_em: { type: ['string', 'null'], format: 'date-time' },
+                    origem_opt_out_whatsapp: { type: ['string', 'null'], maxLength: 50 },
+                },
+            },
+            RespostaConsentimentoWhatsapp: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['status', 'message', 'data'],
+                properties: {
+                    status: { type: 'string', const: 'success' },
+                    message: { type: 'string' },
+                    data: referencia('EstadoConsentimentoWhatsapp'),
                 },
             },
             RespostaClientes: {

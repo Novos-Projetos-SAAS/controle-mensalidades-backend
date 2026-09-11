@@ -184,11 +184,19 @@ const filtrosClientesSchema = z
     })
     .strict();
 
+const consentimentoWhatsappSchema = z
+    .object({
+        origem: z.string().trim().min(1).max(50),
+    })
+    .strict();
+
 export type CriarClienteInput = z.infer<typeof criarClienteSchema>;
 
 export type AtualizarClienteInput = z.infer<typeof atualizarClienteSchema>;
 
 export type FiltrosClientesInput = z.infer<typeof filtrosClientesSchema>;
+
+export type ConsentimentoWhatsappInput = z.infer<typeof consentimentoWhatsappSchema>;
 
 export function validarClienteId(valor: unknown) {
     const resultado = clienteIdSchema.safeParse(valor);
@@ -225,6 +233,20 @@ export function validarFiltrosClientes(valor: unknown): FiltrosClientesInput {
 
     if (!resultado.success) {
         throw new AppError('Filtros de clientes inválidos.', 400, 'FILTROS_CLIENTES_INVALIDOS');
+    }
+
+    return resultado.data;
+}
+
+export function validarConsentimentoWhatsapp(valor: unknown): ConsentimentoWhatsappInput {
+    const resultado = consentimentoWhatsappSchema.safeParse(valor);
+
+    if (!resultado.success) {
+        throw new AppError(
+            'Dados do consentimento de WhatsApp inválidos.',
+            400,
+            'DADOS_CONSENTIMENTO_WHATSAPP_INVALIDOS',
+        );
     }
 
     return resultado.data;

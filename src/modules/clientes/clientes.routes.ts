@@ -25,6 +25,12 @@ clientesRoutes.patch('/:clienteId/inativar', clientesController.inativar);
 // ROTA PATCH /clientes/:clienteId/reativar
 clientesRoutes.patch('/:clienteId/reativar', clientesController.reativar);
 
+// ROTA PATCH /clientes/:clienteId/whatsapp/aceitar
+clientesRoutes.patch('/:clienteId/whatsapp/aceitar', clientesController.aceitarWhatsapp);
+
+// ROTA PATCH /clientes/:clienteId/whatsapp/revogar
+clientesRoutes.patch('/:clienteId/whatsapp/revogar', clientesController.revogarWhatsapp);
+
 // ROTA PATCH /clientes/:clienteId
 clientesRoutes.patch('/:clienteId', clientesController.atualizar);
 

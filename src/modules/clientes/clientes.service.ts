@@ -3,7 +3,7 @@ import type { Knex } from 'knex';
 import AppError from '../../shared/errors/AppError.js';
 
 import clientesRepository from './clientes.repository.js';
-import type { DadosAtualizacaoCliente } from './clientes.repository.js';
+import type { ClienteDetalhe, DadosAtualizacaoCliente } from './clientes.repository.js';
 import type {
     AtualizarClienteInput,
     CriarClienteInput,
@@ -35,6 +35,17 @@ function erroClienteNaoEncontrado() {
 
 function erroAreaNaoEncontrada() {
     return new AppError('Área de negócio não encontrada.', 404, 'AREA_NEGOCIO_NAO_ENCONTRADA');
+}
+
+function selecionarEstadoConsentimento(cliente: ClienteDetalhe) {
+    return {
+        id: cliente.id,
+        aceite_whatsapp: cliente.aceite_whatsapp,
+        aceite_whatsapp_em: cliente.aceite_whatsapp_em,
+        origem_aceite_whatsapp: cliente.origem_aceite_whatsapp,
+        opt_out_whatsapp_em: cliente.opt_out_whatsapp_em,
+        origem_opt_out_whatsapp: cliente.origem_opt_out_whatsapp,
+    };
 }
 
 class ClientesService {
@@ -400,6 +411,110 @@ class ClientesService {
             await clientesRepository.reativarCliente(organizacaoId, clienteId, transaction);
 
             return this.buscarEstadoFinalLifecycle(organizacaoId, clienteId, transaction);
+        });
+    }
+
+    async aceitarWhatsapp(organizacaoId: string | undefined, clienteId: string, origem: string) {
+        if (!organizacaoId) {
+            throw new AppError('Organização não informada.', 400, 'ORGANIZACAO_NAO_INFORMADA');
+        }
+
+        return clientesRepository.executarEmTransacao(async (transaction) => {
+            const cliente = await clientesRepository.buscarPorId(
+                organizacaoId,
+                clienteId,
+                transaction,
+                true,
+            );
+
+            if (!cliente) {
+                throw erroClienteNaoEncontrado();
+            }
+
+            if (cliente.aceite_whatsapp) {
+                throw new AppError(
+                    'Cliente já possui aceite para WhatsApp.',
+                    409,
+                    'CLIENTE_WHATSAPP_JA_ACEITO',
+                );
+            }
+
+            await clientesRepository.registrarAceiteWhatsapp(
+                organizacaoId,
+                clienteId,
+                origem,
+                transaction,
+            );
+
+            const clienteAtualizado = await clientesRepository.buscarPorId(
+                organizacaoId,
+                clienteId,
+                transaction,
+            );
+
+            if (!clienteAtualizado) {
+                throw erroClienteNaoEncontrado();
+            }
+
+            return {
+                cliente: selecionarEstadoConsentimento(clienteAtualizado),
+                tarefasCanceladas: 0,
+            };
+        });
+    }
+
+    async revogarWhatsapp(organizacaoId: string | undefined, clienteId: string, origem: string) {
+        if (!organizacaoId) {
+            throw new AppError('Organização não informada.', 400, 'ORGANIZACAO_NAO_INFORMADA');
+        }
+
+        return clientesRepository.executarEmTransacao(async (transaction) => {
+            const cliente = await clientesRepository.buscarPorId(
+                organizacaoId,
+                clienteId,
+                transaction,
+                true,
+            );
+
+            if (!cliente) {
+                throw erroClienteNaoEncontrado();
+            }
+
+            if (!cliente.aceite_whatsapp) {
+                throw new AppError(
+                    'Cliente já está sem aceite para WhatsApp.',
+                    409,
+                    'CLIENTE_WHATSAPP_JA_REVOGADO',
+                );
+            }
+
+            await clientesRepository.registrarOptOutWhatsapp(
+                organizacaoId,
+                clienteId,
+                origem,
+                transaction,
+            );
+
+            const tarefasCanceladas = await clientesRepository.cancelarTarefasWhatsappPendentes(
+                organizacaoId,
+                clienteId,
+                transaction,
+            );
+
+            const clienteAtualizado = await clientesRepository.buscarPorId(
+                organizacaoId,
+                clienteId,
+                transaction,
+            );
+
+            if (!clienteAtualizado) {
+                throw erroClienteNaoEncontrado();
+            }
+
+            return {
+                cliente: selecionarEstadoConsentimento(clienteAtualizado),
+                tarefasCanceladas,
+            };
         });
     }
 

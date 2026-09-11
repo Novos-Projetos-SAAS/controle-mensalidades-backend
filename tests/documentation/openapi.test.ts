@@ -6,6 +6,7 @@ import openApiDocument from '../../src/documentation/openapi.js';
 type ObjetoJson = Record<string, unknown>;
 type Operacao = ObjetoJson & {
     parameters?: Array<ObjetoJson>;
+    requestBody?: ObjetoJson;
     responses?: ObjetoJson;
     security?: unknown;
 };
@@ -35,6 +36,8 @@ const operacoesEsperadas: Record<string, string[]> = {
     '/clientes/{clienteId}': ['get', 'patch'],
     '/clientes/{clienteId}/inativar': ['patch'],
     '/clientes/{clienteId}/reativar': ['patch'],
+    '/clientes/{clienteId}/whatsapp/aceitar': ['patch'],
+    '/clientes/{clienteId}/whatsapp/revogar': ['patch'],
 };
 
 const rotasOrganizacionais = Object.keys(operacoesEsperadas).filter(
@@ -258,6 +261,69 @@ test('OpenAPI deve documentar edição e lifecycle de clientes sem permitir ativ
     assert.ok(documento.paths['/clientes/{clienteId}/reativar']?.patch);
     assert.ok(documento.paths['/clientes/{clienteId}/inativar']?.patch?.responses?.['409']);
     assert.ok(documento.paths['/clientes/{clienteId}/reativar']?.patch?.responses?.['409']);
+});
+
+test('OpenAPI deve documentar aceite e opt-out de WhatsApp com contrato seguro', () => {
+    const rotas = [
+        '/clientes/{clienteId}/whatsapp/aceitar',
+        '/clientes/{clienteId}/whatsapp/revogar',
+    ];
+
+    for (const rota of rotas) {
+        const operacao = documento.paths[rota]!.patch!;
+
+        assert.deepEqual(operacao.security, [{ cookieAuth: [] }]);
+        assert.equal(possuiParametro(operacao, 'x-organizacao-id'), true);
+        assert.equal(possuiParametro(operacao, 'clienteId'), true);
+
+        const requestBodyContent = operacao.requestBody?.content as ObjetoJson;
+        const requestBodyJson = requestBodyContent['application/json'] as ObjetoJson;
+
+        assert.deepEqual(requestBodyJson.schema, {
+            $ref: '#/components/schemas/ConsentimentoWhatsappRequest',
+        });
+
+        for (const status of ['200', '400', '401', '403', '404', '409']) {
+            assert.ok(operacao.responses?.[status], `${rota} ${status}`);
+        }
+    }
+
+    const body = documento.components.schemas.ConsentimentoWhatsappRequest;
+    const propriedadesBody = body?.properties as ObjetoJson;
+
+    assert.equal(body?.additionalProperties, false);
+    assert.deepEqual(body?.required, ['origem']);
+    assert.deepEqual(Object.keys(propriedadesBody), ['origem']);
+
+    const origem = propriedadesBody.origem as ObjetoJson;
+
+    assert.equal(origem.minLength, 1);
+    assert.equal(origem.maxLength, undefined);
+    assert.equal(correspondeAoPattern(origem, `   ${'X'.repeat(50)}   `), true);
+    assert.equal(correspondeAoPattern(origem, '   '), false);
+    assert.equal(correspondeAoPattern(origem, ''), false);
+    assert.equal(correspondeAoPattern(origem, 'X'.repeat(51)), false);
+    assert.match(String(origem.description), /Após trim, deve possuir entre 1 e 50 caracteres/);
+
+    const estado = documento.components.schemas.EstadoConsentimentoWhatsapp;
+    const propriedadesEstado = estado?.properties as ObjetoJson;
+    const camposConsentimento = [
+        'id',
+        'aceite_whatsapp',
+        'aceite_whatsapp_em',
+        'origem_aceite_whatsapp',
+        'opt_out_whatsapp_em',
+        'origem_opt_out_whatsapp',
+    ];
+
+    assert.equal(estado?.additionalProperties, false);
+    assert.deepEqual(Object.keys(propriedadesEstado).sort(), camposConsentimento.sort());
+    assert.deepEqual([...(estado?.required as string[])].sort(), camposConsentimento.sort());
+
+    const detalhe = propriedadesSchema('ClienteDetalhe');
+
+    assert.ok(detalhe.opt_out_whatsapp_em);
+    assert.ok(detalhe.origem_opt_out_whatsapp);
 });
 
 test('OpenAPI não deve conter referências locais quebradas', () => {

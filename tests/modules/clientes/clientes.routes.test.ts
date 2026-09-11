@@ -9,6 +9,7 @@ import app from '../../../src/app.js';
 import { env } from '../../../src/configuration/env.js';
 import connection from '../../../src/database/connection.js';
 import auditoriaService from '../../../src/modules/auditoria/auditoria.service.js';
+import clientesRepository from '../../../src/modules/clientes/clientes.repository.js';
 
 const organizacaoAId = crypto.randomUUID();
 const organizacaoBId = crypto.randomUUID();
@@ -51,6 +52,7 @@ async function limparClientes() {
     const clientesIds = clientes.map((cliente) => cliente.id);
 
     if (clientesIds.length > 0) {
+        await connection('tarefas_mensagem').whereIn('cliente_id', clientesIds).del();
         await connection('clientes_areas').whereIn('cliente_id', clientesIds).del();
 
         await connection('clientes').whereIn('id', clientesIds).del();
@@ -199,6 +201,11 @@ async function criarClienteTeste(
         ativo?: boolean;
         inativadoEm?: Date;
         deletadoEm?: Date;
+        aceiteWhatsapp?: boolean;
+        aceiteWhatsappEm?: Date;
+        origemAceiteWhatsapp?: string;
+        optOutWhatsappEm?: Date;
+        origemOptOutWhatsapp?: string;
         areas?: string[];
     },
 ) {
@@ -221,6 +228,11 @@ async function criarClienteTeste(
         cidade: dados.cidade ?? null,
         uf: dados.uf ?? null,
         observacao: dados.observacao ?? null,
+        aceite_whatsapp: dados.aceiteWhatsapp ?? false,
+        aceite_whatsapp_em: dados.aceiteWhatsappEm ?? null,
+        origem_aceite_whatsapp: dados.origemAceiteWhatsapp ?? null,
+        opt_out_whatsapp_em: dados.optOutWhatsappEm ?? null,
+        origem_opt_out_whatsapp: dados.origemOptOutWhatsapp ?? null,
         ativo: dados.ativo ?? true,
         inativado_em: dados.inativadoEm ?? null,
         deletado_em: dados.deletadoEm ?? null,
@@ -237,6 +249,33 @@ async function criarClienteTeste(
     }
 
     return clienteId;
+}
+
+async function criarTarefaMensagemTeste(
+    organizacaoId: string,
+    clienteId: string,
+    status: string,
+    dados: {
+        deletadoEm?: Date;
+        canceladoEm?: Date;
+        motivoCancelamento?: string;
+    } = {},
+) {
+    const tarefaId = crypto.randomUUID();
+
+    await connection('tarefas_mensagem').insert({
+        id: tarefaId,
+        organizacao_id: organizacaoId,
+        cliente_id: clienteId,
+        tipo: 'COBRANCA',
+        status,
+        executar_em: new Date(Date.now() + 60_000),
+        deletado_em: dados.deletadoEm ?? null,
+        cancelado_em: dados.canceladoEm ?? null,
+        motivo_cancelamento: dados.motivoCancelamento ?? null,
+    });
+
+    return tarefaId;
 }
 
 test('ADMINISTRADOR deve criar cliente normalizado, vinculado às áreas e auditado', async () => {
@@ -985,6 +1024,10 @@ test('PATCH deve rejeitar body vazio e campos proibidos', async () => {
             organizacao_id: organizacaoBId,
             ativo: false,
             aceite_whatsapp: true,
+            aceite_whatsapp_em: new Date().toISOString(),
+            origem_aceite_whatsapp: 'BODY_PROIBIDO',
+            opt_out_whatsapp_em: new Date().toISOString(),
+            origem_opt_out_whatsapp: 'BODY_PROIBIDO',
         });
 
     for (const response of [bodyVazio, camposProibidos]) {
@@ -1726,4 +1769,610 @@ test('lifecycle concorrente deve serializar operações no mesmo cliente', async
 
     assert.equal(estadoAtivo.ativo, true);
     assert.equal(estadoAtivo.inativado_em, null);
+});
+
+test('ADMINISTRADOR deve registrar aceite de WhatsApp normalizado com auditoria segura', async () => {
+    const clienteId = await criarClienteTeste(organizacaoAId, {
+        nome: 'Cliente Consentimento',
+        cpf: '12345678901',
+        telefone: '18999998888',
+        email: 'consentimento@teste.com',
+        logradouro: 'Rua Particular',
+        observacao: 'Informação privada',
+        areas: [areaA1Id],
+    });
+
+    const response = await request(app)
+        .patch(`/api/v1/clientes/${clienteId}/whatsapp/aceitar`)
+        .set('Cookie', cookieDoUsuario(adminAId))
+        .set('x-organizacao-id', organizacaoAId)
+        .send({ origem: '  PRESENCIAL  ' });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.status, 'success');
+    assert.equal(response.body.message, 'Aceite de WhatsApp registrado com sucesso.');
+    assert.deepEqual(Object.keys(response.body.data).sort(), [
+        'aceite_whatsapp',
+        'aceite_whatsapp_em',
+        'id',
+        'opt_out_whatsapp_em',
+        'origem_aceite_whatsapp',
+        'origem_opt_out_whatsapp',
+    ]);
+    assert.equal(response.body.data.id, clienteId);
+    assert.equal(response.body.data.aceite_whatsapp, true);
+    assert.equal(Number.isNaN(Date.parse(response.body.data.aceite_whatsapp_em)), false);
+    assert.equal(response.body.data.origem_aceite_whatsapp, 'PRESENCIAL');
+    assert.equal(response.body.data.opt_out_whatsapp_em, null);
+    assert.equal(response.body.data.origem_opt_out_whatsapp, null);
+    assert.equal('organizacao_id' in response.body.data, false);
+    assert.equal('deletado_em' in response.body.data, false);
+
+    const cliente = await connection('clientes')
+        .select(
+            'aceite_whatsapp',
+            'aceite_whatsapp_em',
+            'origem_aceite_whatsapp',
+            'opt_out_whatsapp_em',
+            'origem_opt_out_whatsapp',
+        )
+        .where('id', clienteId)
+        .first();
+
+    assert.equal(cliente.aceite_whatsapp, true);
+    assert.ok(cliente.aceite_whatsapp_em);
+    assert.equal(cliente.origem_aceite_whatsapp, 'PRESENCIAL');
+    assert.equal(cliente.opt_out_whatsapp_em, null);
+    assert.equal(cliente.origem_opt_out_whatsapp, null);
+
+    const auditoria = await connection('registros_auditoria')
+        .where({
+            acao: 'CLIENTE.WHATSAPP_ACEITO',
+            recurso: 'CLIENTE',
+            recurso_id: clienteId,
+        })
+        .first();
+
+    assert.ok(auditoria);
+    assert.equal(auditoria.organizacao_id, organizacaoAId);
+    assert.equal(auditoria.usuario_id, adminAId);
+    assert.deepEqual(auditoria.dados_contexto.aceiteAnterior, false);
+    assert.deepEqual(auditoria.dados_contexto.aceiteNovo, true);
+    assert.equal(auditoria.dados_contexto.clienteId, clienteId);
+    assert.equal(typeof auditoria.dados_contexto.requestId, 'string');
+
+    const contexto = JSON.stringify(auditoria.dados_contexto);
+
+    for (const dadoNaoAuditavel of [
+        'PRESENCIAL',
+        '12345678901',
+        '18999998888',
+        'consentimento@teste.com',
+        'Rua Particular',
+        'Informação privada',
+        'body',
+        'origem',
+    ]) {
+        assert.equal(contexto.includes(dadoNaoAuditavel), false);
+    }
+});
+
+test('OPERADOR deve poder registrar aceite de WhatsApp', async () => {
+    const clienteId = await criarClienteTeste(organizacaoAId, {
+        nome: 'Cliente Aceite Operador',
+        areas: [areaA1Id],
+    });
+
+    const response = await request(app)
+        .patch(`/api/v1/clientes/${clienteId}/whatsapp/aceitar`)
+        .set('Cookie', cookieDoUsuario(operadorAId))
+        .set('x-organizacao-id', organizacaoAId)
+        .send({ origem: 'TELEFONE' });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.data.aceite_whatsapp, true);
+
+    const auditoria = await connection('registros_auditoria')
+        .where({ acao: 'CLIENTE.WHATSAPP_ACEITO', recurso_id: clienteId })
+        .first();
+
+    assert.equal(auditoria.usuario_id, operadorAId);
+});
+
+test('aceite de WhatsApp deve rejeitar bodies inválidos e campos de autoridade', async () => {
+    const clienteId = await criarClienteTeste(organizacaoAId, {
+        nome: 'Cliente Validação Consentimento',
+        areas: [areaA1Id],
+    });
+    const cabecalhos = {
+        Cookie: cookieDoUsuario(adminAId),
+        'x-organizacao-id': organizacaoAId,
+    };
+    const bodies = [
+        {},
+        { origem: '   ' },
+        { origem: 'PRESENCIAL', desconhecido: true },
+        { origem: 'PRESENCIAL', organizacao_id: organizacaoBId },
+        { origem: 'PRESENCIAL', cliente_id: crypto.randomUUID() },
+        { origem: 'PRESENCIAL', aceite_whatsapp: true },
+        { origem: 'X'.repeat(51) },
+    ];
+
+    for (const body of bodies) {
+        const response = await request(app)
+            .patch(`/api/v1/clientes/${clienteId}/whatsapp/aceitar`)
+            .set(cabecalhos)
+            .send(body);
+
+        assert.equal(response.status, 400);
+        assert.equal(response.body.codigo, 'DADOS_CONSENTIMENTO_WHATSAPP_INVALIDOS');
+        assert.equal(response.body.mensagem, 'Dados do consentimento de WhatsApp inválidos.');
+    }
+});
+
+test('aceite deve rejeitar UUID inválido, outro tenant e cliente soft-deleted', async () => {
+    const clienteOutroTenantId = await criarClienteTeste(organizacaoBId, {
+        nome: 'Cliente Aceite Tenant B',
+        areas: [areaBId],
+    });
+    const clienteDeletadoId = await criarClienteTeste(organizacaoAId, {
+        nome: 'Cliente Aceite Deletado',
+        deletadoEm: new Date(),
+        areas: [areaA1Id],
+    });
+    const cabecalhos = {
+        Cookie: cookieDoUsuario(adminAId),
+        'x-organizacao-id': organizacaoAId,
+    };
+    const idInvalido = await request(app)
+        .patch('/api/v1/clientes/id-invalido/whatsapp/aceitar')
+        .set(cabecalhos)
+        .send({ origem: 'PRESENCIAL' });
+
+    assert.equal(idInvalido.status, 400);
+    assert.equal(idInvalido.body.codigo, 'CLIENTE_ID_INVALIDO');
+
+    for (const clienteId of [clienteOutroTenantId, clienteDeletadoId]) {
+        const response = await request(app)
+            .patch(`/api/v1/clientes/${clienteId}/whatsapp/aceitar`)
+            .set(cabecalhos)
+            .send({ origem: 'PRESENCIAL' });
+
+        assert.equal(response.status, 404);
+        assert.equal(response.body.codigo, 'CLIENTE_NAO_ENCONTRADO');
+        assert.equal(response.body.mensagem, 'Cliente não encontrado.');
+    }
+});
+
+test('aceite repetido deve retornar conflito sem alterar timestamp', async () => {
+    const aceiteWhatsappEm = new Date('2026-08-10T12:00:00.000Z');
+    const clienteId = await criarClienteTeste(organizacaoAId, {
+        nome: 'Cliente Já Aceito',
+        aceiteWhatsapp: true,
+        aceiteWhatsappEm,
+        origemAceiteWhatsapp: 'CADASTRO',
+        areas: [areaA1Id],
+    });
+
+    const response = await request(app)
+        .patch(`/api/v1/clientes/${clienteId}/whatsapp/aceitar`)
+        .set('Cookie', cookieDoUsuario(adminAId))
+        .set('x-organizacao-id', organizacaoAId)
+        .send({ origem: 'NOVA_ORIGEM' });
+
+    assert.equal(response.status, 409);
+    assert.equal(response.body.codigo, 'CLIENTE_WHATSAPP_JA_ACEITO');
+    assert.equal(response.body.mensagem, 'Cliente já possui aceite para WhatsApp.');
+
+    const cliente = await connection('clientes')
+        .select('aceite_whatsapp_em', 'origem_aceite_whatsapp')
+        .where('id', clienteId)
+        .first();
+
+    assert.equal(cliente.aceite_whatsapp_em.toISOString(), aceiteWhatsappEm.toISOString());
+    assert.equal(cliente.origem_aceite_whatsapp, 'CADASTRO');
+});
+
+test('ADMINISTRADOR deve revogar WhatsApp e cancelar somente tarefas pendentes elegíveis', async () => {
+    const aceiteWhatsappEm = new Date('2026-08-11T12:00:00.000Z');
+    const clienteId = await criarClienteTeste(organizacaoAId, {
+        nome: 'Cliente Opt-out',
+        cpf: '98765432100',
+        telefone: '18988887777',
+        email: 'optout@teste.com',
+        observacao: 'Dado particular opt-out',
+        aceiteWhatsapp: true,
+        aceiteWhatsappEm,
+        origemAceiteWhatsapp: 'PRESENCIAL',
+        areas: [areaA1Id],
+    });
+    const outroClienteId = await criarClienteTeste(organizacaoAId, {
+        nome: 'Outro Cliente',
+        aceiteWhatsapp: true,
+        aceiteWhatsappEm,
+        origemAceiteWhatsapp: 'PRESENCIAL',
+        areas: [areaA1Id],
+    });
+    const clienteOutroTenantId = await criarClienteTeste(organizacaoBId, {
+        nome: 'Cliente Tarefa Tenant B',
+        aceiteWhatsapp: true,
+        aceiteWhatsappEm,
+        origemAceiteWhatsapp: 'PRESENCIAL',
+        areas: [areaBId],
+    });
+    const canceladoEmOriginal = new Date('2026-08-10T10:00:00.000Z');
+    const tarefaPendenteId = await criarTarefaMensagemTeste(organizacaoAId, clienteId, 'PENDENTE');
+    const tarefaProcessandoId = await criarTarefaMensagemTeste(
+        organizacaoAId,
+        clienteId,
+        'PROCESSANDO',
+    );
+    const tarefaEnviadaId = await criarTarefaMensagemTeste(organizacaoAId, clienteId, 'ENVIADA');
+    const tarefaFalhouId = await criarTarefaMensagemTeste(organizacaoAId, clienteId, 'FALHOU');
+    const tarefaCanceladaId = await criarTarefaMensagemTeste(
+        organizacaoAId,
+        clienteId,
+        'CANCELADA',
+        {
+            canceladoEm: canceladoEmOriginal,
+            motivoCancelamento: 'MOTIVO_ANTERIOR',
+        },
+    );
+    const tarefaDeletadaId = await criarTarefaMensagemTeste(organizacaoAId, clienteId, 'PENDENTE', {
+        deletadoEm: new Date(),
+    });
+    const tarefaOutroClienteId = await criarTarefaMensagemTeste(
+        organizacaoAId,
+        outroClienteId,
+        'PENDENTE',
+    );
+    const tarefaOutroTenantId = await criarTarefaMensagemTeste(
+        organizacaoBId,
+        clienteOutroTenantId,
+        'PENDENTE',
+    );
+
+    const response = await request(app)
+        .patch(`/api/v1/clientes/${clienteId}/whatsapp/revogar`)
+        .set('Cookie', cookieDoUsuario(adminAId))
+        .set('x-organizacao-id', organizacaoAId)
+        .send({ origem: '  SOLICITACAO_CLIENTE  ' });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.status, 'success');
+    assert.equal(response.body.message, 'Aceite de WhatsApp revogado com sucesso.');
+    assert.deepEqual(Object.keys(response.body.data).sort(), [
+        'aceite_whatsapp',
+        'aceite_whatsapp_em',
+        'id',
+        'opt_out_whatsapp_em',
+        'origem_aceite_whatsapp',
+        'origem_opt_out_whatsapp',
+    ]);
+    assert.equal(response.body.data.id, clienteId);
+    assert.equal(response.body.data.aceite_whatsapp, false);
+    assert.equal(response.body.data.aceite_whatsapp_em, aceiteWhatsappEm.toISOString());
+    assert.equal(response.body.data.origem_aceite_whatsapp, 'PRESENCIAL');
+    assert.equal(Number.isNaN(Date.parse(response.body.data.opt_out_whatsapp_em)), false);
+    assert.equal(response.body.data.origem_opt_out_whatsapp, 'SOLICITACAO_CLIENTE');
+    assert.equal('organizacao_id' in response.body.data, false);
+    assert.equal('deletado_em' in response.body.data, false);
+
+    const tarefas = await connection('tarefas_mensagem')
+        .select('id', 'status', 'cancelado_em', 'motivo_cancelamento')
+        .whereIn('id', [
+            tarefaPendenteId,
+            tarefaProcessandoId,
+            tarefaEnviadaId,
+            tarefaFalhouId,
+            tarefaCanceladaId,
+            tarefaDeletadaId,
+            tarefaOutroClienteId,
+            tarefaOutroTenantId,
+        ]);
+    const tarefasPorId = new Map(tarefas.map((tarefa) => [tarefa.id, tarefa]));
+    const pendenteCancelada = tarefasPorId.get(tarefaPendenteId);
+
+    assert.equal(pendenteCancelada?.status, 'CANCELADA');
+    assert.ok(pendenteCancelada?.cancelado_em);
+    assert.equal(pendenteCancelada?.motivo_cancelamento, 'OPT_OUT_WHATSAPP');
+
+    for (const [tarefaId, status] of [
+        [tarefaProcessandoId, 'PROCESSANDO'],
+        [tarefaEnviadaId, 'ENVIADA'],
+        [tarefaFalhouId, 'FALHOU'],
+        [tarefaDeletadaId, 'PENDENTE'],
+        [tarefaOutroClienteId, 'PENDENTE'],
+        [tarefaOutroTenantId, 'PENDENTE'],
+    ]) {
+        const tarefa = tarefasPorId.get(tarefaId);
+
+        assert.equal(tarefa?.status, status);
+        assert.equal(tarefa?.cancelado_em, null);
+        assert.equal(tarefa?.motivo_cancelamento, null);
+    }
+
+    const tarefaJaCancelada = tarefasPorId.get(tarefaCanceladaId);
+
+    assert.equal(tarefaJaCancelada?.status, 'CANCELADA');
+    assert.equal(tarefaJaCancelada?.cancelado_em.toISOString(), canceladoEmOriginal.toISOString());
+    assert.equal(tarefaJaCancelada?.motivo_cancelamento, 'MOTIVO_ANTERIOR');
+
+    const auditoria = await connection('registros_auditoria')
+        .where({
+            acao: 'CLIENTE.WHATSAPP_REVOGADO',
+            recurso: 'CLIENTE',
+            recurso_id: clienteId,
+        })
+        .first();
+
+    assert.ok(auditoria);
+    assert.equal(auditoria.organizacao_id, organizacaoAId);
+    assert.equal(auditoria.usuario_id, adminAId);
+    assert.equal(auditoria.dados_contexto.clienteId, clienteId);
+    assert.equal(auditoria.dados_contexto.aceiteAnterior, true);
+    assert.equal(auditoria.dados_contexto.aceiteNovo, false);
+    assert.equal(auditoria.dados_contexto.tarefasCanceladas, 1);
+    assert.equal(typeof auditoria.dados_contexto.requestId, 'string');
+
+    const contexto = JSON.stringify(auditoria.dados_contexto);
+
+    for (const dadoNaoAuditavel of [
+        'SOLICITACAO_CLIENTE',
+        '98765432100',
+        '18988887777',
+        'optout@teste.com',
+        'Dado particular opt-out',
+        'body',
+        'origem',
+    ]) {
+        assert.equal(contexto.includes(dadoNaoAuditavel), false);
+    }
+});
+
+test('OPERADOR deve poder revogar aceite de WhatsApp', async () => {
+    const clienteId = await criarClienteTeste(organizacaoAId, {
+        nome: 'Cliente Revogação Operador',
+        aceiteWhatsapp: true,
+        aceiteWhatsappEm: new Date(),
+        origemAceiteWhatsapp: 'PRESENCIAL',
+        areas: [areaA1Id],
+    });
+
+    const response = await request(app)
+        .patch(`/api/v1/clientes/${clienteId}/whatsapp/revogar`)
+        .set('Cookie', cookieDoUsuario(operadorAId))
+        .set('x-organizacao-id', organizacaoAId)
+        .send({ origem: 'PEDIDO_CLIENTE' });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.data.aceite_whatsapp, false);
+
+    const auditoria = await connection('registros_auditoria')
+        .where({ acao: 'CLIENTE.WHATSAPP_REVOGADO', recurso_id: clienteId })
+        .first();
+
+    assert.equal(auditoria.usuario_id, operadorAId);
+});
+
+test('revogação repetida deve retornar conflito', async () => {
+    const clienteId = await criarClienteTeste(organizacaoAId, {
+        nome: 'Cliente Já Revogado',
+        areas: [areaA1Id],
+    });
+
+    const response = await request(app)
+        .patch(`/api/v1/clientes/${clienteId}/whatsapp/revogar`)
+        .set('Cookie', cookieDoUsuario(adminAId))
+        .set('x-organizacao-id', organizacaoAId)
+        .send({ origem: 'SOLICITACAO_CLIENTE' });
+
+    assert.equal(response.status, 409);
+    assert.equal(response.body.codigo, 'CLIENTE_WHATSAPP_JA_REVOGADO');
+    assert.equal(response.body.mensagem, 'Cliente já está sem aceite para WhatsApp.');
+});
+
+test('revogação e cancelamento de tarefas devem sofrer rollback juntos', async () => {
+    const clienteId = await criarClienteTeste(organizacaoAId, {
+        nome: 'Cliente Rollback Opt-out',
+        aceiteWhatsapp: true,
+        aceiteWhatsappEm: new Date('2026-08-12T12:00:00.000Z'),
+        origemAceiteWhatsapp: 'PRESENCIAL',
+        areas: [areaA1Id],
+    });
+    const tarefaId = await criarTarefaMensagemTeste(organizacaoAId, clienteId, 'PENDENTE');
+    const cancelarOriginal = clientesRepository.cancelarTarefasWhatsappPendentes;
+
+    clientesRepository.cancelarTarefasWhatsappPendentes = async () => {
+        throw new Error('Falha simulada no cancelamento de tarefas.');
+    };
+
+    try {
+        const response = await request(app)
+            .patch(`/api/v1/clientes/${clienteId}/whatsapp/revogar`)
+            .set('Cookie', cookieDoUsuario(adminAId))
+            .set('x-organizacao-id', organizacaoAId)
+            .send({ origem: 'SOLICITACAO_CLIENTE' });
+
+        assert.equal(response.status, 500);
+    } finally {
+        clientesRepository.cancelarTarefasWhatsappPendentes = cancelarOriginal;
+    }
+
+    const cliente = await connection('clientes')
+        .select('aceite_whatsapp', 'opt_out_whatsapp_em', 'origem_opt_out_whatsapp')
+        .where('id', clienteId)
+        .first();
+    const tarefa = await connection('tarefas_mensagem')
+        .select('status', 'cancelado_em', 'motivo_cancelamento')
+        .where('id', tarefaId)
+        .first();
+
+    assert.equal(cliente.aceite_whatsapp, true);
+    assert.equal(cliente.opt_out_whatsapp_em, null);
+    assert.equal(cliente.origem_opt_out_whatsapp, null);
+    assert.equal(tarefa.status, 'PENDENTE');
+    assert.equal(tarefa.cancelado_em, null);
+    assert.equal(tarefa.motivo_cancelamento, null);
+});
+
+test('auditoria de aceite e revogação deve ser fail-open', async () => {
+    const clienteId = await criarClienteTeste(organizacaoAId, {
+        nome: 'Cliente Auditoria Fail-open Consentimento',
+        areas: [areaA1Id],
+    });
+    const registrarOriginal = auditoriaService.registrar;
+
+    auditoriaService.registrar = async () => {
+        throw new Error('Falha simulada na auditoria de consentimento.');
+    };
+
+    try {
+        const aceite = await request(app)
+            .patch(`/api/v1/clientes/${clienteId}/whatsapp/aceitar`)
+            .set('Cookie', cookieDoUsuario(adminAId))
+            .set('x-organizacao-id', organizacaoAId)
+            .send({ origem: 'PRESENCIAL' });
+        const revogacao = await request(app)
+            .patch(`/api/v1/clientes/${clienteId}/whatsapp/revogar`)
+            .set('Cookie', cookieDoUsuario(adminAId))
+            .set('x-organizacao-id', organizacaoAId)
+            .send({ origem: 'SOLICITACAO_CLIENTE' });
+
+        assert.equal(aceite.status, 200);
+        assert.equal(revogacao.status, 200);
+    } finally {
+        auditoriaService.registrar = registrarOriginal;
+    }
+
+    const cliente = await connection('clientes')
+        .select('aceite_whatsapp', 'aceite_whatsapp_em', 'opt_out_whatsapp_em')
+        .where('id', clienteId)
+        .first();
+
+    assert.equal(cliente.aceite_whatsapp, false);
+    assert.ok(cliente.aceite_whatsapp_em);
+    assert.ok(cliente.opt_out_whatsapp_em);
+});
+
+test('reaceite deve preservar histórico do opt-out e não reativar tarefas canceladas', async () => {
+    const clienteId = await criarClienteTeste(organizacaoAId, {
+        nome: 'Cliente Reaceite',
+        aceiteWhatsapp: true,
+        aceiteWhatsappEm: new Date('2026-08-13T12:00:00.000Z'),
+        origemAceiteWhatsapp: 'PRIMEIRO_ACEITE',
+        areas: [areaA1Id],
+    });
+    const tarefaId = await criarTarefaMensagemTeste(organizacaoAId, clienteId, 'PENDENTE');
+
+    const revogacao = await request(app)
+        .patch(`/api/v1/clientes/${clienteId}/whatsapp/revogar`)
+        .set('Cookie', cookieDoUsuario(adminAId))
+        .set('x-organizacao-id', organizacaoAId)
+        .send({ origem: 'SOLICITACAO_CLIENTE' });
+
+    assert.equal(revogacao.status, 200);
+
+    const optOutEm = revogacao.body.data.opt_out_whatsapp_em;
+
+    const reaceite = await request(app)
+        .patch(`/api/v1/clientes/${clienteId}/whatsapp/aceitar`)
+        .set('Cookie', cookieDoUsuario(adminAId))
+        .set('x-organizacao-id', organizacaoAId)
+        .send({ origem: 'RECONSENTIMENTO' });
+
+    assert.equal(reaceite.status, 200);
+    assert.equal(reaceite.body.data.aceite_whatsapp, true);
+    assert.equal(reaceite.body.data.origem_aceite_whatsapp, 'RECONSENTIMENTO');
+    assert.equal(reaceite.body.data.opt_out_whatsapp_em, optOutEm);
+    assert.equal(reaceite.body.data.origem_opt_out_whatsapp, 'SOLICITACAO_CLIENTE');
+
+    const tarefa = await connection('tarefas_mensagem')
+        .select('status', 'motivo_cancelamento')
+        .where('id', tarefaId)
+        .first();
+
+    assert.equal(tarefa.status, 'CANCELADA');
+    assert.equal(tarefa.motivo_cancelamento, 'OPT_OUT_WHATSAPP');
+});
+
+test('cliente inativo pode aceitar e revogar consentimento de WhatsApp', async () => {
+    const clienteId = await criarClienteTeste(organizacaoAId, {
+        nome: 'Cliente Inativo Consentimento',
+        ativo: false,
+        inativadoEm: new Date(),
+        areas: [areaA1Id],
+    });
+
+    const aceite = await request(app)
+        .patch(`/api/v1/clientes/${clienteId}/whatsapp/aceitar`)
+        .set('Cookie', cookieDoUsuario(adminAId))
+        .set('x-organizacao-id', organizacaoAId)
+        .send({ origem: 'PRESENCIAL' });
+    const revogacao = await request(app)
+        .patch(`/api/v1/clientes/${clienteId}/whatsapp/revogar`)
+        .set('Cookie', cookieDoUsuario(adminAId))
+        .set('x-organizacao-id', organizacaoAId)
+        .send({ origem: 'SOLICITACAO_CLIENTE' });
+
+    assert.equal(aceite.status, 200);
+    assert.equal(revogacao.status, 200);
+
+    const cliente = await connection('clientes')
+        .select('ativo', 'aceite_whatsapp')
+        .where('id', clienteId)
+        .first();
+
+    assert.equal(cliente.ativo, false);
+    assert.equal(cliente.aceite_whatsapp, false);
+});
+
+test('aceite e revogação concorrentes devem terminar em estado integralmente consistente', async () => {
+    const clienteId = await criarClienteTeste(organizacaoAId, {
+        nome: 'Cliente Consentimento Concorrente',
+        areas: [areaA1Id],
+    });
+    const cabecalhos = {
+        Cookie: cookieDoUsuario(adminAId),
+        'x-organizacao-id': organizacaoAId,
+    };
+
+    const [aceite, revogacao] = await Promise.all([
+        request(app)
+            .patch(`/api/v1/clientes/${clienteId}/whatsapp/aceitar`)
+            .set(cabecalhos)
+            .send({ origem: 'ACEITE_CONCORRENTE' }),
+        request(app)
+            .patch(`/api/v1/clientes/${clienteId}/whatsapp/revogar`)
+            .set(cabecalhos)
+            .send({ origem: 'REVOGACAO_CONCORRENTE' }),
+    ]);
+
+    assert.equal(aceite.status, 200);
+    assert.equal([200, 409].includes(revogacao.status), true);
+
+    const cliente = await connection('clientes')
+        .select(
+            'aceite_whatsapp',
+            'aceite_whatsapp_em',
+            'origem_aceite_whatsapp',
+            'opt_out_whatsapp_em',
+            'origem_opt_out_whatsapp',
+        )
+        .where('id', clienteId)
+        .first();
+
+    assert.ok(cliente.aceite_whatsapp_em);
+    assert.equal(cliente.origem_aceite_whatsapp, 'ACEITE_CONCORRENTE');
+
+    if (revogacao.status === 200) {
+        assert.equal(cliente.aceite_whatsapp, false);
+        assert.ok(cliente.opt_out_whatsapp_em);
+        assert.equal(cliente.origem_opt_out_whatsapp, 'REVOGACAO_CONCORRENTE');
+    } else {
+        assert.equal(revogacao.body.codigo, 'CLIENTE_WHATSAPP_JA_REVOGADO');
+        assert.equal(cliente.aceite_whatsapp, true);
+        assert.equal(cliente.opt_out_whatsapp_em, null);
+        assert.equal(cliente.origem_opt_out_whatsapp, null);
+    }
 });
