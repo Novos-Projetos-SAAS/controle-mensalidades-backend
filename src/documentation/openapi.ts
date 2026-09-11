@@ -370,6 +370,7 @@ const openApiDocument = {
                     'cpf_cnpj',
                     'email',
                     'telefone',
+                    'fuso_horario',
                 ],
                 properties: {
                     id: {
@@ -400,6 +401,12 @@ const openApiDocument = {
                     telefone: {
                         type: ['string', 'null'],
                         maxLength: 20,
+                    },
+                    fuso_horario: {
+                        type: 'string',
+                        maxLength: 50,
+                        description: 'Identificador de fuso horário IANA.',
+                        examples: ['America/Sao_Paulo'],
                     },
                 },
             },
@@ -437,6 +444,13 @@ const openApiDocument = {
                         type: ['string', 'null'],
                         minLength: 1,
                         maxLength: 20,
+                    },
+                    fuso_horario: {
+                        type: 'string',
+                        minLength: 1,
+                        maxLength: 50,
+                        description: 'Identificador de fuso horário IANA válido.',
+                        examples: ['America/Sao_Paulo'],
                     },
                 },
             },

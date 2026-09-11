@@ -58,6 +58,7 @@ async function restaurarOrganizacoes() {
             cpf_cnpj: `A-${organizacaoAId}`.slice(0, 20),
             email: 'contato-a@teste.com',
             telefone: '11999990001',
+            fuso_horario: 'America/Sao_Paulo',
             ativo: true,
             deletado_em: null,
         });
@@ -70,6 +71,7 @@ async function restaurarOrganizacoes() {
             cpf_cnpj: `B-${organizacaoBId}`.slice(0, 20),
             email: 'contato-b@teste.com',
             telefone: '11999990002',
+            fuso_horario: 'America/Recife',
             ativo: true,
             deletado_em: null,
         });
@@ -87,6 +89,7 @@ before(async () => {
             cpf_cnpj: `A-${organizacaoAId}`.slice(0, 20),
             email: 'contato-a@teste.com',
             telefone: '11999990001',
+            fuso_horario: 'America/Sao_Paulo',
             cep: '01001-000',
             logradouro: 'Rua Interna A',
             logo_url: 'https://teste.local/logo-a.png',
@@ -100,6 +103,7 @@ before(async () => {
             cpf_cnpj: `B-${organizacaoBId}`.slice(0, 20),
             email: 'contato-b@teste.com',
             telefone: '11999990002',
+            fuso_horario: 'America/Recife',
             ativo: true,
         },
     ]);
@@ -218,6 +222,7 @@ test('GET deve retornar somente os campos básicos seguros', async () => {
     assert.deepEqual(Object.keys(response.body.data).sort(), [
         'cpf_cnpj',
         'email',
+        'fuso_horario',
         'id',
         'nome',
         'nome_fantasia',
@@ -228,6 +233,74 @@ test('GET deve retornar somente os campos básicos seguros', async () => {
     assert.equal('deletado_em' in response.body.data, false);
     assert.equal('logradouro' in response.body.data, false);
     assert.equal('logo_url' in response.body.data, false);
+});
+
+test('GET deve retornar o fuso horário da organização atual', async () => {
+    const response = await request(app)
+        .get('/api/v1/organizacoes/atual')
+        .set('Cookie', cookieDoUsuario(administradorAId))
+        .set('x-organizacao-id', organizacaoAId);
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.data.fuso_horario, 'America/Sao_Paulo');
+});
+
+test('ADMINISTRADOR deve atualizar e normalizar um fuso horário IANA válido', async () => {
+    const response = await request(app)
+        .patch('/api/v1/organizacoes/atual')
+        .set('Cookie', cookieDoUsuario(administradorAId))
+        .set('x-organizacao-id', organizacaoAId)
+        .send({ fuso_horario: '  America/Manaus  ' });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.data.fuso_horario, 'America/Manaus');
+
+    const organizacao = await connection('organizacoes')
+        .select('fuso_horario')
+        .where('id', organizacaoAId)
+        .first();
+
+    assert.equal(organizacao.fuso_horario, 'America/Manaus');
+});
+
+test('PATCH deve rejeitar fusos horários inválidos', async () => {
+    for (const fusoHorario of ['Sao Paulo', 'GMT-3 Brasil', 'abc']) {
+        const response = await request(app)
+            .patch('/api/v1/organizacoes/atual')
+            .set('Cookie', cookieDoUsuario(administradorAId))
+            .set('x-organizacao-id', organizacaoAId)
+            .send({ fuso_horario: fusoHorario });
+
+        assert.equal(response.status, 400);
+        assert.equal(response.body.codigo, 'DADOS_ORGANIZACAO_INVALIDOS');
+        assert.equal(response.body.mensagem, 'Dados da organização inválidos.');
+    }
+});
+
+test('PATCH deve auditar a alteração do fuso horário', async () => {
+    const response = await request(app)
+        .patch('/api/v1/organizacoes/atual')
+        .set('Cookie', cookieDoUsuario(administradorAId))
+        .set('x-organizacao-id', organizacaoAId)
+        .send({ fuso_horario: 'UTC' });
+
+    assert.equal(response.status, 200);
+
+    const auditoria = await connection('registros_auditoria')
+        .where({
+            acao: 'ORGANIZACAO.ATUALIZADA',
+            recurso: 'ORGANIZACAO',
+            recurso_id: organizacaoAId,
+        })
+        .first();
+
+    assert.ok(auditoria);
+    assert.deepEqual(auditoria.dados_contexto.anterior, {
+        fuso_horario: 'America/Sao_Paulo',
+    });
+    assert.deepEqual(auditoria.dados_contexto.novo, {
+        fuso_horario: 'UTC',
+    });
 });
 
 test('ADMINISTRADOR deve atualizar campos normalizados sem alterar outra organização', async () => {

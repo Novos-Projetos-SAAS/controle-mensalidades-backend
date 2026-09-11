@@ -8,6 +8,7 @@ export type OrganizacaoAtual = {
     cpf_cnpj: string | null;
     email: string | null;
     telefone: string | null;
+    fuso_horario: string;
 };
 
 export type DadosAtualizacaoOrganizacao = {
@@ -17,6 +18,7 @@ export type DadosAtualizacaoOrganizacao = {
     cpf_cnpj?: string | null;
     email?: string | null;
     telefone?: string | null;
+    fuso_horario?: string;
 };
 
 const camposOrganizacaoAtual = [
@@ -27,6 +29,7 @@ const camposOrganizacaoAtual = [
     'cpf_cnpj',
     'email',
     'telefone',
+    'fuso_horario',
 ] as const;
 
 class OrganizacoesRepository {

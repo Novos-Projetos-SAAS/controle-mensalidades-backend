@@ -13,7 +13,7 @@ http:
     type: json
     data: |-
       {
-        "telefone": "18999999999"
+        "fuso_horario": "America/Sao_Paulo"
       }
   auth: inherit
 

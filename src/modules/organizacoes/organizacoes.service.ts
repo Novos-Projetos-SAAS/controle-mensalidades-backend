@@ -75,6 +75,12 @@ class OrganizacoesService {
             novo.telefone = dados.telefone;
         }
 
+        if (dados.fuso_horario !== undefined) {
+            atualizacao.fuso_horario = dados.fuso_horario;
+            anterior.fuso_horario = organizacaoAnterior.fuso_horario;
+            novo.fuso_horario = dados.fuso_horario;
+        }
+
         const organizacao = await organizacoesRepository.atualizarAtual(organizacaoId, atualizacao);
 
         if (!organizacao) {

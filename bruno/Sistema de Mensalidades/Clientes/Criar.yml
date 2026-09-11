@@ -1,10 +1,10 @@
 info:
-  name: teste
+  name: Criar
   type: http
 
 http:
-  method: GET
-  url: "{{baseUrl}}/teste"
+  method: POST
+  url: "{{baseUrl}}/clientes"
   auth: inherit
 
 settings:
