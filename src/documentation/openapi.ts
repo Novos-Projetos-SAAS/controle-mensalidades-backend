@@ -42,6 +42,7 @@ const parametroAreaContexto = { $ref: '#/components/parameters/AreaNegocioIdHead
 const parametroAreaPath = { $ref: '#/components/parameters/AreaNegocioIdPath' };
 const parametroUsuarioPath = { $ref: '#/components/parameters/UsuarioIdPath' };
 const parametroClientePath = { $ref: '#/components/parameters/ClienteIdPath' };
+const parametroServicoPath = { $ref: '#/components/parameters/ServicoIdPath' };
 
 const camposCliente = {
     id: {
@@ -296,7 +297,8 @@ const openApiDocument = {
     info: {
         title: 'Sistema de Mensalidades API',
         version: '1.0.0',
-        description: 'API REST v1 para autenticação, contexto organizacional e gestão de clientes.',
+        description:
+            'API REST v1 para autenticação, contexto organizacional e gestão de clientes e serviços.',
     },
     servers: [
         {
@@ -313,6 +315,10 @@ const openApiDocument = {
         { name: 'Organizações', description: 'Dados da organização atual.' },
         { name: 'Usuários', description: 'Vínculos de usuários com a organização atual.' },
         { name: 'Clientes', description: 'Cadastro, consulta, edição e lifecycle de clientes.' },
+        {
+            name: 'Serviços',
+            description: 'Catálogo de serviços da área atual protegido pelo módulo AGENDA.',
+        },
     ],
     paths: {
         '/health': {
@@ -650,6 +656,103 @@ const openApiDocument = {
                 },
             },
         },
+        '/servicos': {
+            get: {
+                tags: ['Serviços'],
+                summary: 'Listar serviços da área atual',
+                description:
+                    'Lista serviços ativos e inativos não excluídos da área atual. Exige o módulo AGENDA habilitado para a organização e a área.',
+                operationId: 'listarServicos',
+                security: segurancaCookie,
+                parameters: [
+                    parametroOrganizacao,
+                    parametroAreaContexto,
+                    {
+                        name: 'ativo',
+                        in: 'query',
+                        description: 'Filtra pelo estado de lifecycle do serviço.',
+                        schema: { type: 'string', enum: ['true', 'false'] },
+                    },
+                ],
+                responses: {
+                    '200': respostaJson('Serviços encontrados.', referencia('RespostaServicos')),
+                    ...erros('400', '401', '403', '404'),
+                },
+            },
+            post: {
+                tags: ['Serviços'],
+                summary: 'Criar serviço na área atual',
+                description:
+                    'Exige perfil ADMINISTRADOR e o módulo AGENDA habilitado para a organização e a área.',
+                operationId: 'criarServico',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao, parametroAreaContexto],
+                requestBody: corpoJson(referencia('CriacaoServico')),
+                responses: {
+                    '201': respostaJson('Serviço criado.', referencia('RespostaServico')),
+                    ...erros('400', '401', '403', '404'),
+                },
+            },
+        },
+        '/servicos/{servicoId}': {
+            get: {
+                tags: ['Serviços'],
+                summary: 'Consultar serviço da área atual',
+                description:
+                    'Exige o módulo AGENDA habilitado para a organização e a área. Serviços inativos continuam consultáveis.',
+                operationId: 'consultarServico',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao, parametroAreaContexto, parametroServicoPath],
+                responses: {
+                    '200': respostaJson('Serviço encontrado.', referencia('RespostaServico')),
+                    ...erros('400', '401', '403', '404'),
+                },
+            },
+            patch: {
+                tags: ['Serviços'],
+                summary: 'Atualizar serviço da área atual',
+                description:
+                    'Exige perfil ADMINISTRADOR e o módulo AGENDA habilitado. Campos omitidos são preservados; `null` limpa descrição ou valor. Área e lifecycle não podem ser alterados por esta operação.',
+                operationId: 'atualizarServico',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao, parametroAreaContexto, parametroServicoPath],
+                requestBody: corpoJson(referencia('AtualizacaoServico')),
+                responses: {
+                    '200': respostaJson('Serviço atualizado.', referencia('RespostaServico')),
+                    ...erros('400', '401', '403', '404'),
+                },
+            },
+        },
+        '/servicos/{servicoId}/inativar': {
+            patch: {
+                tags: ['Serviços'],
+                summary: 'Inativar serviço da área atual',
+                description:
+                    'Exige perfil ADMINISTRADOR e o módulo AGENDA habilitado. Preserva o cadastro do serviço.',
+                operationId: 'inativarServico',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao, parametroAreaContexto, parametroServicoPath],
+                responses: {
+                    '200': respostaJson('Serviço inativado.', referencia('RespostaServico')),
+                    ...erros('400', '401', '403', '404', '409'),
+                },
+            },
+        },
+        '/servicos/{servicoId}/reativar': {
+            patch: {
+                tags: ['Serviços'],
+                summary: 'Reativar serviço da área atual',
+                description:
+                    'Exige perfil ADMINISTRADOR e o módulo AGENDA habilitado. Serviços soft-deleted não podem ser reativados.',
+                operationId: 'reativarServico',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao, parametroAreaContexto, parametroServicoPath],
+                responses: {
+                    '200': respostaJson('Serviço reativado.', referencia('RespostaServico')),
+                    ...erros('400', '401', '403', '404', '409'),
+                },
+            },
+        },
     },
     components: {
         headers: {
@@ -695,6 +798,12 @@ const openApiDocument = {
             },
             ClienteIdPath: {
                 name: 'clienteId',
+                in: 'path',
+                required: true,
+                schema: { type: 'string', format: 'uuid' },
+            },
+            ServicoIdPath: {
+                name: 'servicoId',
                 in: 'path',
                 required: true,
                 schema: { type: 'string', format: 'uuid' },
@@ -1096,6 +1205,100 @@ const openApiDocument = {
                     status: { type: 'string', const: 'success' },
                     message: { type: 'string' },
                     data: referencia('EstadoConsentimentoWhatsapp'),
+                },
+            },
+            Servico: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['id', 'nome', 'descricao', 'duracao_minutos', 'valor', 'ativo'],
+                properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    nome: { type: 'string', minLength: 1, maxLength: 150 },
+                    descricao: { type: ['string', 'null'], minLength: 1, maxLength: 5000 },
+                    duracao_minutos: { type: 'integer', minimum: 1, maximum: 1440 },
+                    valor: {
+                        type: ['string', 'null'],
+                        pattern: '^(?:0|[1-9]\\d{0,9})\\.\\d{2}$',
+                        description:
+                            'Valor decimal retornado como string pelo driver PostgreSQL, com duas casas decimais.',
+                        examples: ['120.00', null],
+                    },
+                    ativo: { type: 'boolean' },
+                },
+            },
+            CriacaoServico: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['nome', 'duracao_minutos'],
+                properties: {
+                    nome: {
+                        type: 'string',
+                        minLength: 1,
+                        pattern: '^\\s*(?:\\S(?:[\\s\\S]{0,148}\\S)?)\\s*$',
+                        description: 'Após trim, deve possuir entre 1 e 150 caracteres.',
+                    },
+                    descricao: {
+                        type: 'string',
+                        minLength: 1,
+                        pattern: '^\\s*(?:\\S(?:[\\s\\S]{0,4998}\\S)?)\\s*$',
+                        description: 'Após trim, deve possuir entre 1 e 5000 caracteres.',
+                    },
+                    duracao_minutos: { type: 'integer', minimum: 1, maximum: 1440 },
+                    valor: {
+                        type: 'number',
+                        minimum: 0,
+                        maximum: 9999999999.99,
+                        multipleOf: 0.01,
+                    },
+                },
+            },
+            AtualizacaoServico: {
+                type: 'object',
+                additionalProperties: false,
+                minProperties: 1,
+                description:
+                    'Campo omitido significa não alterar. `null` limpa apenas `descricao` ou `valor`. Campos de autoridade e lifecycle não são aceitos.',
+                properties: {
+                    nome: {
+                        type: 'string',
+                        minLength: 1,
+                        pattern: '^\\s*(?:\\S(?:[\\s\\S]{0,148}\\S)?)\\s*$',
+                        description: 'Após trim, deve possuir entre 1 e 150 caracteres.',
+                    },
+                    descricao: {
+                        type: ['string', 'null'],
+                        minLength: 1,
+                        pattern: '^\\s*(?:\\S(?:[\\s\\S]{0,4998}\\S)?)\\s*$',
+                        description:
+                            'Após trim, deve possuir entre 1 e 5000 caracteres. Use null para limpar.',
+                    },
+                    duracao_minutos: { type: 'integer', minimum: 1, maximum: 1440 },
+                    valor: {
+                        type: ['number', 'null'],
+                        minimum: 0,
+                        maximum: 9999999999.99,
+                        multipleOf: 0.01,
+                    },
+                },
+            },
+            RespostaServico: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['status', 'message', 'data'],
+                properties: {
+                    status: { type: 'string', const: 'success' },
+                    message: { type: 'string' },
+                    data: referencia('Servico'),
+                },
+            },
+            RespostaServicos: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['status', 'message', 'data'],
+                properties: {
+                    status: { type: 'string', const: 'success' },
+                    message: { type: 'string' },
+                    data: { type: 'array', items: referencia('Servico') },
                 },
             },
             RespostaClientes: {

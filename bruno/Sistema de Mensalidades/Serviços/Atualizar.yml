@@ -1,0 +1,28 @@
+info:
+  name: Atualizar
+  type: http
+  seq: 7
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/servicos/881a4f94-e964-4282-9063-9379dd7db503"
+  headers:
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "nome": "Pilates individual atualizado",
+        "duracao_minutos": 60,
+        "valor": 135.00
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -38,6 +38,10 @@ const operacoesEsperadas: Record<string, string[]> = {
     '/clientes/{clienteId}/reativar': ['patch'],
     '/clientes/{clienteId}/whatsapp/aceitar': ['patch'],
     '/clientes/{clienteId}/whatsapp/revogar': ['patch'],
+    '/servicos': ['get', 'post'],
+    '/servicos/{servicoId}': ['get', 'patch'],
+    '/servicos/{servicoId}/inativar': ['patch'],
+    '/servicos/{servicoId}/reativar': ['patch'],
 };
 
 const rotasOrganizacionais = Object.keys(operacoesEsperadas).filter(
@@ -122,6 +126,17 @@ test('OpenAPI deve exigir os headers de contexto somente nas rotas correspondent
     }
 
     assert.equal(possuiParametro(documento.paths['/contexto']!.get!, 'x-area-negocio-id'), true);
+
+    for (const rota of [
+        '/servicos',
+        '/servicos/{servicoId}',
+        '/servicos/{servicoId}/inativar',
+        '/servicos/{servicoId}/reativar',
+    ]) {
+        for (const operacao of Object.values(documento.paths[rota] ?? {})) {
+            assert.equal(possuiParametro(operacao, 'x-area-negocio-id'), true, rota);
+        }
+    }
 });
 
 test('OpenAPI deve representar os valores brutos normalizados na criação e edição de clientes', () => {
@@ -324,6 +339,74 @@ test('OpenAPI deve documentar aceite e opt-out de WhatsApp com contrato seguro',
 
     assert.ok(detalhe.opt_out_whatsapp_em);
     assert.ok(detalhe.origem_opt_out_whatsapp);
+});
+
+test('OpenAPI deve documentar o módulo de Serviços conforme o contrato real', () => {
+    const rotas = [
+        '/servicos',
+        '/servicos/{servicoId}',
+        '/servicos/{servicoId}/inativar',
+        '/servicos/{servicoId}/reativar',
+    ];
+
+    for (const rota of rotas) {
+        for (const operacao of Object.values(documento.paths[rota] ?? {})) {
+            assert.deepEqual(operacao.security, [{ cookieAuth: [] }]);
+            assert.equal(possuiParametro(operacao, 'x-organizacao-id'), true);
+            assert.equal(possuiParametro(operacao, 'x-area-negocio-id'), true);
+            assert.match(String(operacao.description), /AGENDA/);
+        }
+    }
+
+    assert.equal(
+        possuiParametro(documento.paths['/servicos/{servicoId}']!.get!, 'servicoId'),
+        true,
+    );
+    assert.equal(
+        possuiParametro(documento.paths['/servicos/{servicoId}']!.patch!, 'servicoId'),
+        true,
+    );
+
+    const parametrosListagem = documento.paths['/servicos']!.get!.parameters ?? [];
+    const filtroAtivo = parametrosListagem
+        .map(resolverParametro)
+        .find((parametro) => parametro?.name === 'ativo');
+    const schemaFiltroAtivo = filtroAtivo?.schema as ObjetoJson;
+
+    assert.deepEqual(schemaFiltroAtivo.enum, ['true', 'false']);
+
+    const criacao = documento.components.schemas.CriacaoServico;
+    const propriedadesCriacao = criacao?.properties as ObjetoJson;
+    const atualizacao = documento.components.schemas.AtualizacaoServico;
+    const propriedadesAtualizacao = atualizacao?.properties as ObjetoJson;
+    const camposEditaveis = ['nome', 'descricao', 'duracao_minutos', 'valor'];
+
+    assert.equal(criacao?.additionalProperties, false);
+    assert.deepEqual(criacao?.required, ['nome', 'duracao_minutos']);
+    assert.deepEqual(Object.keys(propriedadesCriacao).sort(), camposEditaveis.sort());
+    assert.equal(atualizacao?.additionalProperties, false);
+    assert.equal(atualizacao?.minProperties, 1);
+    assert.deepEqual(Object.keys(propriedadesAtualizacao).sort(), camposEditaveis.sort());
+    assert.deepEqual((propriedadesAtualizacao.descricao as ObjetoJson).type, ['string', 'null']);
+    assert.deepEqual((propriedadesAtualizacao.valor as ObjetoJson).type, ['number', 'null']);
+    assert.equal(propriedadesAtualizacao.ativo, undefined);
+    assert.equal(propriedadesAtualizacao.organizacao_id, undefined);
+    assert.equal(propriedadesAtualizacao.area_negocio_id, undefined);
+
+    const servico = documento.components.schemas.Servico;
+    const propriedadesServico = servico?.properties as ObjetoJson;
+    const camposPublicos = ['id', 'nome', 'descricao', 'duracao_minutos', 'valor', 'ativo'];
+
+    assert.equal(servico?.additionalProperties, false);
+    assert.deepEqual(Object.keys(propriedadesServico).sort(), camposPublicos.sort());
+    assert.deepEqual([...(servico?.required as string[])].sort(), camposPublicos.sort());
+    assert.deepEqual((propriedadesServico.valor as ObjetoJson).type, ['string', 'null']);
+    assert.equal(propriedadesServico.organizacao_id, undefined);
+    assert.equal(propriedadesServico.area_negocio_id, undefined);
+    assert.equal(propriedadesServico.deletado_em, undefined);
+
+    assert.ok(documento.paths['/servicos/{servicoId}/inativar']?.patch?.responses?.['409']);
+    assert.ok(documento.paths['/servicos/{servicoId}/reativar']?.patch?.responses?.['409']);
 });
 
 test('OpenAPI não deve conter referências locais quebradas', () => {

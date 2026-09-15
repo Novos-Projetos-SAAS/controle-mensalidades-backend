@@ -4,3 +4,5 @@ variables:
     value: http://localhost:3333/api/v1
   - name: organizacao-id
     value: 1248c1f9-4bb3-4964-8c49-def6a0881a28
+  - name: area-negocio-id
+    value: 9c27eafe-dea9-45a2-a3c5-b30f18ac4ee4

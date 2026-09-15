@@ -1,0 +1,20 @@
+info:
+  name: Listar ativos
+  type: http
+  seq: 2
+
+http:
+  method: GET
+  url: "{{baseUrl}}/servicos?ativo=true"
+  headers:
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

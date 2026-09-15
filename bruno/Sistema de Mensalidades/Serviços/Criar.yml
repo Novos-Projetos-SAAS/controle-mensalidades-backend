@@ -1,0 +1,29 @@
+info:
+  name: Criar
+  type: http
+  seq: 4
+
+http:
+  method: POST
+  url: "{{baseUrl}}/servicos"
+  headers:
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "nome": "Pilates individual",
+        "descricao": "Atendimento individual",
+        "duracao_minutos": 50,
+        "valor": 120.00
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
