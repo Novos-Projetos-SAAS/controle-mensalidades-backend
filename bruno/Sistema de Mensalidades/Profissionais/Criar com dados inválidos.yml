@@ -1,0 +1,29 @@
+info:
+  name: Criar com dados inválidos
+  type: http
+  seq: 13
+
+http:
+  method: POST
+  url: "{{baseUrl}}/profissionais"
+  headers:
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "nome": "",
+        "cpf": "123",
+        "email": "email-invalido",
+        "areas": []
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

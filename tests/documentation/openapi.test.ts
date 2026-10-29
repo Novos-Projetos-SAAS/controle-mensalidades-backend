@@ -42,6 +42,10 @@ const operacoesEsperadas: Record<string, string[]> = {
     '/servicos/{servicoId}': ['get', 'patch'],
     '/servicos/{servicoId}/inativar': ['patch'],
     '/servicos/{servicoId}/reativar': ['patch'],
+    '/profissionais': ['get', 'post'],
+    '/profissionais/{profissionalId}': ['get', 'patch'],
+    '/profissionais/{profissionalId}/inativar': ['patch'],
+    '/profissionais/{profissionalId}/reativar': ['patch'],
 };
 
 const rotasOrganizacionais = Object.keys(operacoesEsperadas).filter(
@@ -132,6 +136,10 @@ test('OpenAPI deve exigir os headers de contexto somente nas rotas correspondent
         '/servicos/{servicoId}',
         '/servicos/{servicoId}/inativar',
         '/servicos/{servicoId}/reativar',
+        '/profissionais',
+        '/profissionais/{profissionalId}',
+        '/profissionais/{profissionalId}/inativar',
+        '/profissionais/{profissionalId}/reativar',
     ]) {
         for (const operacao of Object.values(documento.paths[rota] ?? {})) {
             assert.equal(possuiParametro(operacao, 'x-area-negocio-id'), true, rota);
@@ -407,6 +415,88 @@ test('OpenAPI deve documentar o módulo de Serviços conforme o contrato real', 
 
     assert.ok(documento.paths['/servicos/{servicoId}/inativar']?.patch?.responses?.['409']);
     assert.ok(documento.paths['/servicos/{servicoId}/reativar']?.patch?.responses?.['409']);
+});
+
+test('OpenAPI deve documentar o módulo de Profissionais com contratos e acesso corretos', () => {
+    const rotas = [
+        '/profissionais',
+        '/profissionais/{profissionalId}',
+        '/profissionais/{profissionalId}/inativar',
+        '/profissionais/{profissionalId}/reativar',
+    ];
+
+    for (const rota of rotas) {
+        for (const operacao of Object.values(documento.paths[rota] ?? {})) {
+            assert.deepEqual(operacao.security, [{ cookieAuth: [] }]);
+            assert.equal(possuiParametro(operacao, 'x-organizacao-id'), true, rota);
+            assert.equal(possuiParametro(operacao, 'x-area-negocio-id'), true, rota);
+            assert.match(String(operacao.description), /AGENDA/, rota);
+        }
+    }
+
+    for (const rota of rotas.slice(1)) {
+        for (const operacao of Object.values(documento.paths[rota] ?? {})) {
+            assert.equal(possuiParametro(operacao, 'profissionalId'), true, rota);
+        }
+    }
+
+    const parametros = documento.paths['/profissionais']!.get!.parameters ?? [];
+    for (const nome of ['busca', 'ativo', 'areaNegocioId']) {
+        assert.equal(
+            parametros.map(resolverParametro).some((parametro) => parametro?.name === nome),
+            true,
+        );
+    }
+
+    const criacao = documento.components.schemas.CriacaoProfissional;
+    const atualizacao = documento.components.schemas.AtualizacaoProfissional;
+    const campos = [
+        'nome',
+        'cpf',
+        'email',
+        'telefone',
+        'conselho',
+        'numero_conselho',
+        'uf_conselho',
+        'areas',
+    ];
+
+    assert.deepEqual(criacao?.required, ['nome', 'areas']);
+    assert.equal(criacao?.additionalProperties, false);
+    assert.deepEqual(Object.keys(criacao?.properties as ObjetoJson).sort(), campos.sort());
+    assert.equal(atualizacao?.additionalProperties, false);
+    assert.equal(atualizacao?.minProperties, 1);
+    assert.deepEqual(Object.keys(atualizacao?.properties as ObjetoJson).sort(), campos.sort());
+    assert.deepEqual(propriedadeSchema('AtualizacaoProfissional', 'cpf').type, ['string', 'null']);
+    for (const proibido of ['ativo', 'usuario_id', 'organizacao_id', 'inativado_em']) {
+        assert.equal((atualizacao?.properties as ObjetoJson)[proibido], undefined);
+    }
+
+    const areas = propriedadeSchema('CriacaoProfissional', 'areas');
+    assert.equal(areas.minItems, 1);
+    assert.equal(areas.uniqueItems, true);
+
+    const resumo = documento.components.schemas.Profissional;
+    const propriedadesResumo = resumo?.properties as ObjetoJson;
+    assert.ok(propriedadesResumo.areas);
+    assert.equal(propriedadesResumo.inativado_em, undefined);
+    assert.equal(propriedadesResumo.organizacao_id, undefined);
+
+    const detalhe = propriedadesSchema('ProfissionalDetalhe');
+    const estado = propriedadesSchema('EstadoProfissional');
+    assert.ok(detalhe.inativado_em);
+    assert.ok(detalhe.areas);
+    assert.ok(estado.inativado_em);
+    assert.equal(estado.areas, undefined);
+
+    assert.ok(documento.paths['/profissionais']?.post?.responses?.['409']);
+    assert.ok(documento.paths['/profissionais/{profissionalId}']?.patch?.responses?.['409']);
+    assert.ok(
+        documento.paths['/profissionais/{profissionalId}/inativar']?.patch?.responses?.['409'],
+    );
+    assert.ok(
+        documento.paths['/profissionais/{profissionalId}/reativar']?.patch?.responses?.['409'],
+    );
 });
 
 test('OpenAPI não deve conter referências locais quebradas', () => {

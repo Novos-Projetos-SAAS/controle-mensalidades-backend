@@ -1,0 +1,35 @@
+info:
+  name: Criar com CPF duplicado
+  type: http
+  seq: 2
+
+http:
+  method: POST
+  url: "{{baseUrl}}/profissionais"
+  headers:
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "nome": "Dra. Ana Souza Duplicada",
+        "cpf": "12345678901",
+        "email": "ana.duplicada@teste.com",
+        "telefone": "18977777777",
+        "conselho": "CREFITO",
+        "numero_conselho": "654321-F",
+        "uf_conselho": "SP",
+        "areas": [
+          "{{area-negocio-id}}"
+        ]
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,0 +1,24 @@
+info:
+  name: Listar por área
+  type: http
+  seq: 5
+
+http:
+  method: GET
+  url: "{{baseUrl}}/profissionais?areaNegocioId={{area-negocio-id}}"
+  headers:
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  params:
+    - name: areaNegocioId
+      value: "{{area-negocio-id}}"
+      type: query
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,0 +1,24 @@
+info:
+  name: Listar ativos
+  type: http
+  seq: 4
+
+http:
+  method: GET
+  url: "{{baseUrl}}/profissionais?ativo=true"
+  headers:
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  params:
+    - name: ativo
+      value: "true"
+      type: query
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

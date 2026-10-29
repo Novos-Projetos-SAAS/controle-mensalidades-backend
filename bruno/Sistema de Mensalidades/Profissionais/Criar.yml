@@ -1,0 +1,35 @@
+info:
+  name: Criar
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: "{{baseUrl}}/profissionais"
+  headers:
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "nome": "Dra. Ana Souza",
+        "cpf": "12345678901",
+        "email": "ana.profissional@teste.com",
+        "telefone": "18999999999",
+        "conselho": "CREFITO",
+        "numero_conselho": "123456-F",
+        "uf_conselho": "SP",
+        "areas": [
+          "{{area-negocio-id}}"
+        ]
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

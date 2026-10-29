@@ -43,6 +43,7 @@ const parametroAreaPath = { $ref: '#/components/parameters/AreaNegocioIdPath' };
 const parametroUsuarioPath = { $ref: '#/components/parameters/UsuarioIdPath' };
 const parametroClientePath = { $ref: '#/components/parameters/ClienteIdPath' };
 const parametroServicoPath = { $ref: '#/components/parameters/ServicoIdPath' };
+const parametroProfissionalPath = { $ref: '#/components/parameters/ProfissionalIdPath' };
 
 const camposCliente = {
     id: {
@@ -292,13 +293,66 @@ const camposAtualizacaoCliente = {
     },
 };
 
+const camposProfissional = {
+    id: { type: 'string', format: 'uuid' },
+    nome: { type: 'string', minLength: 1, maxLength: 150 },
+    cpf: { type: ['string', 'null'], pattern: '^\\d{11}$' },
+    email: { type: ['string', 'null'], format: 'email', maxLength: 150 },
+    telefone: { type: ['string', 'null'], minLength: 8, maxLength: 15 },
+    conselho: { type: ['string', 'null'], maxLength: 30 },
+    numero_conselho: { type: ['string', 'null'], maxLength: 50 },
+    uf_conselho: { type: ['string', 'null'], minLength: 2, maxLength: 2 },
+    ativo: { type: 'boolean' },
+};
+
+const camposEntradaProfissional = {
+    nome: {
+        type: 'string',
+        description: 'Após trim, deve ter entre 1 e 150 caracteres.',
+    },
+    cpf: {
+        type: 'string',
+        description:
+            'Aceita CPF formatado: remove caracteres não numéricos. Vazio é omitido; valor normalizado deve ter 11 dígitos.',
+        examples: ['123.456.789-01'],
+    },
+    email: {
+        type: 'string',
+        description:
+            'Após trim e lowercase, deve ser e-mail válido com até 150 caracteres. Vazio é omitido.',
+    },
+    telefone: {
+        type: 'string',
+        description:
+            'Remove caracteres não numéricos. Vazio é omitido; valor normalizado deve ter de 8 a 15 dígitos.',
+        examples: ['(18) 99999-8888'],
+    },
+    conselho: { type: 'string', description: 'Após trim, até 30 caracteres. Vazio é omitido.' },
+    numero_conselho: {
+        type: 'string',
+        description: 'Após trim, até 50 caracteres. Vazio é omitido.',
+    },
+    uf_conselho: {
+        type: 'string',
+        description: 'Após trim e uppercase, deve ter 2 caracteres. Vazio é omitido.',
+    },
+    areas: {
+        type: 'array',
+        minItems: 1,
+        uniqueItems: true,
+        description:
+            'IDs de áreas de negócio ativas da mesma organização; vínculos duplicados são proibidos.',
+        items: { type: 'string', format: 'uuid' },
+    },
+};
+
 const openApiDocument = {
     openapi: '3.1.0',
     info: {
         title: 'Sistema de Mensalidades API',
         version: '1.0.0',
         description:
-            'API REST v1 para autenticação, contexto organizacional e gestão de clientes e serviços.',
+            'API REST v1 para autenticação, contexto organizacional e gestão de clientes, serviços e profissionais.',
     },
     servers: [
         {
@@ -318,6 +372,11 @@ const openApiDocument = {
         {
             name: 'Serviços',
             description: 'Catálogo de serviços da área atual protegido pelo módulo AGENDA.',
+        },
+        {
+            name: 'Profissionais',
+            description:
+                'Cadastro organizacional de profissionais com vínculos a múltiplas áreas, protegido pelo módulo AGENDA.',
         },
     ],
     paths: {
@@ -753,6 +812,150 @@ const openApiDocument = {
                 },
             },
         },
+        '/profissionais': {
+            get: {
+                tags: ['Profissionais'],
+                summary: 'Listar profissionais da organização',
+                description:
+                    'Exige o módulo AGENDA habilitado na área do header. O cadastro e a listagem são organizacionais; areaNegocioId no filtro seleciona vínculos ativos e é independente do header de contexto.',
+                operationId: 'listarProfissionais',
+                security: segurancaCookie,
+                parameters: [
+                    parametroOrganizacao,
+                    parametroAreaContexto,
+                    {
+                        name: 'busca',
+                        in: 'query',
+                        description:
+                            'Busca em nome, e-mail, conselho, número do conselho, CPF e telefone.',
+                        schema: { type: 'string', minLength: 1, maxLength: 150 },
+                    },
+                    {
+                        name: 'ativo',
+                        in: 'query',
+                        schema: { type: 'string', enum: ['true', 'false'] },
+                    },
+                    {
+                        name: 'areaNegocioId',
+                        in: 'query',
+                        description:
+                            'Filtra pelo vínculo ativo com a área informada (não é o header de contexto).',
+                        schema: { type: 'string', format: 'uuid' },
+                    },
+                ],
+                responses: {
+                    '200': respostaJson(
+                        'Profissionais listados.',
+                        referencia('RespostaProfissionais'),
+                    ),
+                    ...erros('400', '401', '403', '404'),
+                },
+            },
+            post: {
+                tags: ['Profissionais'],
+                summary: 'Criar profissional na organização',
+                description:
+                    'Exige perfil ADMINISTRADOR e módulo AGENDA habilitado na área de contexto. O profissional é organizacional e pode ser vinculado a uma ou mais áreas ativas da organização.',
+                operationId: 'criarProfissional',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao, parametroAreaContexto],
+                requestBody: corpoJson(referencia('CriacaoProfissional')),
+                responses: {
+                    '201': respostaJson(
+                        'Profissional criado.',
+                        referencia('RespostaProfissionalCriado'),
+                    ),
+                    ...erros('400', '401', '403', '404', '409'),
+                },
+            },
+        },
+        '/profissionais/{profissionalId}': {
+            get: {
+                tags: ['Profissionais'],
+                summary: 'Consultar profissional da organização',
+                description:
+                    'Exige módulo AGENDA na área de contexto. Profissionais inativos continuam consultáveis.',
+                operationId: 'consultarProfissional',
+                security: segurancaCookie,
+                parameters: [
+                    parametroOrganizacao,
+                    parametroAreaContexto,
+                    parametroProfissionalPath,
+                ],
+                responses: {
+                    '200': respostaJson(
+                        'Profissional encontrado.',
+                        referencia('RespostaProfissional'),
+                    ),
+                    ...erros('400', '401', '403', '404'),
+                },
+            },
+            patch: {
+                tags: ['Profissionais'],
+                summary: 'Atualizar profissional e seus vínculos por área',
+                description:
+                    'Exige perfil ADMINISTRADOR e módulo AGENDA na área de contexto. Campos omitidos são preservados; null limpa campos opcionais. Se areas for informado, sincroniza os vínculos ativos sem apagar o histórico. Não altera ativo.',
+                operationId: 'atualizarProfissional',
+                security: segurancaCookie,
+                parameters: [
+                    parametroOrganizacao,
+                    parametroAreaContexto,
+                    parametroProfissionalPath,
+                ],
+                requestBody: corpoJson(referencia('AtualizacaoProfissional')),
+                responses: {
+                    '200': respostaJson(
+                        'Profissional atualizado.',
+                        referencia('RespostaProfissional'),
+                    ),
+                    ...erros('400', '401', '403', '404', '409'),
+                },
+            },
+        },
+        '/profissionais/{profissionalId}/inativar': {
+            patch: {
+                tags: ['Profissionais'],
+                summary: 'Inativar profissional globalmente',
+                description:
+                    'Exige perfil ADMINISTRADOR e módulo AGENDA na área de contexto. Mantém os vínculos com áreas e não exclui o profissional.',
+                operationId: 'inativarProfissional',
+                security: segurancaCookie,
+                parameters: [
+                    parametroOrganizacao,
+                    parametroAreaContexto,
+                    parametroProfissionalPath,
+                ],
+                responses: {
+                    '200': respostaJson(
+                        'Profissional inativado.',
+                        referencia('RespostaEstadoProfissional'),
+                    ),
+                    ...erros('400', '401', '403', '404', '409'),
+                },
+            },
+        },
+        '/profissionais/{profissionalId}/reativar': {
+            patch: {
+                tags: ['Profissionais'],
+                summary: 'Reativar profissional globalmente',
+                description:
+                    'Exige perfil ADMINISTRADOR e módulo AGENDA na área de contexto. Preserva os vínculos anteriores com áreas; soft-deleted não pode ser reativado.',
+                operationId: 'reativarProfissional',
+                security: segurancaCookie,
+                parameters: [
+                    parametroOrganizacao,
+                    parametroAreaContexto,
+                    parametroProfissionalPath,
+                ],
+                responses: {
+                    '200': respostaJson(
+                        'Profissional reativado.',
+                        referencia('RespostaEstadoProfissional'),
+                    ),
+                    ...erros('400', '401', '403', '404', '409'),
+                },
+            },
+        },
     },
     components: {
         headers: {
@@ -804,6 +1007,12 @@ const openApiDocument = {
             },
             ServicoIdPath: {
                 name: 'servicoId',
+                in: 'path',
+                required: true,
+                schema: { type: 'string', format: 'uuid' },
+            },
+            ProfissionalIdPath: {
+                name: 'profissionalId',
                 in: 'path',
                 required: true,
                 schema: { type: 'string', format: 'uuid' },
@@ -1205,6 +1414,111 @@ const openApiDocument = {
                     status: { type: 'string', const: 'success' },
                     message: { type: 'string' },
                     data: referencia('EstadoConsentimentoWhatsapp'),
+                },
+            },
+            AreaVinculadaProfissional: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['id', 'nome'],
+                properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    nome: { type: 'string', minLength: 1, maxLength: 150 },
+                },
+            },
+            Profissional: {
+                type: 'object',
+                additionalProperties: false,
+                required: [...Object.keys(camposProfissional), 'areas'],
+                properties: {
+                    ...camposProfissional,
+                    areas: { type: 'array', items: referencia('AreaVinculadaProfissional') },
+                },
+            },
+            ProfissionalDetalhe: {
+                type: 'object',
+                additionalProperties: false,
+                required: [...Object.keys(camposProfissional), 'areas', 'inativado_em'],
+                properties: {
+                    ...camposProfissional,
+                    inativado_em: { type: ['string', 'null'], format: 'date-time' },
+                    areas: { type: 'array', items: referencia('AreaVinculadaProfissional') },
+                },
+            },
+            EstadoProfissional: {
+                type: 'object',
+                additionalProperties: false,
+                required: [...Object.keys(camposProfissional), 'inativado_em'],
+                properties: {
+                    ...camposProfissional,
+                    inativado_em: { type: ['string', 'null'], format: 'date-time' },
+                },
+            },
+            CriacaoProfissional: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['nome', 'areas'],
+                properties: camposEntradaProfissional,
+            },
+            AtualizacaoProfissional: {
+                type: 'object',
+                additionalProperties: false,
+                minProperties: 1,
+                description:
+                    'Campos omitidos são preservados. null limpa cpf, email, telefone, conselho, numero_conselho e uf_conselho. O array areas, se fornecido, deve conter pelo menos um UUID único. Não permite ativo, usuario_id ou organizacao_id.',
+                properties: {
+                    ...camposEntradaProfissional,
+                    cpf: { ...camposEntradaProfissional.cpf, type: ['string', 'null'] },
+                    email: { ...camposEntradaProfissional.email, type: ['string', 'null'] },
+                    telefone: { ...camposEntradaProfissional.telefone, type: ['string', 'null'] },
+                    conselho: { ...camposEntradaProfissional.conselho, type: ['string', 'null'] },
+                    numero_conselho: {
+                        ...camposEntradaProfissional.numero_conselho,
+                        type: ['string', 'null'],
+                    },
+                    uf_conselho: {
+                        ...camposEntradaProfissional.uf_conselho,
+                        type: ['string', 'null'],
+                    },
+                },
+            },
+            RespostaProfissionalCriado: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['status', 'message', 'data'],
+                properties: {
+                    status: { type: 'string', const: 'success' },
+                    message: { type: 'string' },
+                    data: referencia('Profissional'),
+                },
+            },
+            RespostaProfissionais: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['status', 'message', 'data'],
+                properties: {
+                    status: { type: 'string', const: 'success' },
+                    message: { type: 'string' },
+                    data: { type: 'array', items: referencia('Profissional') },
+                },
+            },
+            RespostaProfissional: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['status', 'message', 'data'],
+                properties: {
+                    status: { type: 'string', const: 'success' },
+                    message: { type: 'string' },
+                    data: referencia('ProfissionalDetalhe'),
+                },
+            },
+            RespostaEstadoProfissional: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['status', 'message', 'data'],
+                properties: {
+                    status: { type: 'string', const: 'success' },
+                    message: { type: 'string' },
+                    data: referencia('EstadoProfissional'),
                 },
             },
             Servico: {
