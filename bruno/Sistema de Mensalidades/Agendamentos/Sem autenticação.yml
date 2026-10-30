@@ -1,0 +1,30 @@
+info:
+  name: Sem autenticação
+  type: http
+  seq: 1
+
+http:
+  method: GET
+  url: "{{baseUrl}}/agendamentos?inicio=2026-11-10T00%3A00%3A00-03%3A00&fim=2026-11-11T00%3A00%3A00-03%3A00"
+  headers:
+    - name: Cookie
+      value: ""
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("requisição sem autenticação retorna 401", function() {
+          expect(res.status).to.equal(401);
+        });
+
+settings:
+  encodeUrl: false
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -46,6 +46,11 @@ const operacoesEsperadas: Record<string, string[]> = {
     '/profissionais/{profissionalId}': ['get', 'patch'],
     '/profissionais/{profissionalId}/inativar': ['patch'],
     '/profissionais/{profissionalId}/reativar': ['patch'],
+    '/agendamentos': ['get', 'post'],
+    '/agendamentos/{agendamentoId}': ['get', 'patch'],
+    '/agendamentos/{agendamentoId}/confirmar': ['patch'],
+    '/agendamentos/{agendamentoId}/concluir': ['patch'],
+    '/agendamentos/{agendamentoId}/cancelar': ['patch'],
 };
 
 const rotasOrganizacionais = Object.keys(operacoesEsperadas).filter(
@@ -497,6 +502,81 @@ test('OpenAPI deve documentar o módulo de Profissionais com contratos e acesso 
     assert.ok(
         documento.paths['/profissionais/{profissionalId}/reativar']?.patch?.responses?.['409'],
     );
+});
+
+test('OpenAPI deve documentar Agendamentos, janela, estados e bodies estritos', () => {
+    const rotas = [
+        '/agendamentos',
+        '/agendamentos/{agendamentoId}',
+        '/agendamentos/{agendamentoId}/confirmar',
+        '/agendamentos/{agendamentoId}/concluir',
+        '/agendamentos/{agendamentoId}/cancelar',
+    ];
+
+    for (const rota of rotas) {
+        for (const operacao of Object.values(documento.paths[rota] ?? {})) {
+            assert.deepEqual(operacao.security, [{ cookieAuth: [] }]);
+            assert.equal(possuiParametro(operacao, 'x-organizacao-id'), true, rota);
+            assert.equal(possuiParametro(operacao, 'x-area-negocio-id'), true, rota);
+            assert.match(String(operacao.description), /AGENDA/);
+        }
+    }
+
+    for (const rota of rotas.slice(1)) {
+        for (const operacao of Object.values(documento.paths[rota] ?? {})) {
+            assert.equal(possuiParametro(operacao, 'agendamentoId'), true, rota);
+        }
+    }
+
+    const listagem = documento.paths['/agendamentos']!.get!;
+    for (const nome of ['inicio', 'fim', 'profissionalId', 'clienteId', 'status']) {
+        assert.equal(
+            (listagem.parameters ?? [])
+                .map(resolverParametro)
+                .some((parametro) => parametro?.name === nome),
+            true,
+            nome,
+        );
+    }
+
+    const criacao = documento.components.schemas.CriacaoAgendamento;
+    const atualizacao = documento.components.schemas.AtualizacaoAgendamento;
+    const cancelamento = documento.components.schemas.CancelamentoAgendamento;
+    assert.equal(criacao?.additionalProperties, false);
+    assert.deepEqual(criacao?.required, [
+        'cliente_id',
+        'profissional_id',
+        'servico_id',
+        'inicio_em',
+    ]);
+    assert.equal(atualizacao?.additionalProperties, false);
+    assert.equal(atualizacao?.minProperties, 1);
+    assert.deepEqual(((atualizacao?.properties as ObjetoJson).observacao as ObjetoJson).type, [
+        'string',
+        'null',
+    ]);
+    assert.equal((atualizacao?.properties as ObjetoJson).cliente_id, undefined);
+    assert.equal(cancelamento?.additionalProperties, false);
+
+    const agendamento = documento.components.schemas.Agendamento;
+    const propriedades = agendamento?.properties as ObjetoJson;
+    for (const proibido of ['organizacao_id', 'area_negocio_id', 'deletado_em', 'criado_em']) {
+        assert.equal(propriedades[proibido], undefined);
+    }
+    assert.deepEqual((propriedades.status as ObjetoJson).enum, [
+        'AGENDADO',
+        'CONFIRMADO',
+        'CONCLUIDO',
+        'CANCELADO',
+    ]);
+
+    assert.ok(documento.paths['/agendamentos']?.post?.responses?.['409']);
+    assert.ok(documento.paths['/agendamentos/{agendamentoId}']?.patch?.responses?.['409']);
+    assert.ok(
+        documento.paths['/agendamentos/{agendamentoId}/confirmar']?.patch?.responses?.['409'],
+    );
+    assert.ok(documento.paths['/agendamentos/{agendamentoId}/concluir']?.patch?.responses?.['409']);
+    assert.ok(documento.paths['/agendamentos/{agendamentoId}/cancelar']?.patch?.responses?.['409']);
 });
 
 test('OpenAPI não deve conter referências locais quebradas', () => {

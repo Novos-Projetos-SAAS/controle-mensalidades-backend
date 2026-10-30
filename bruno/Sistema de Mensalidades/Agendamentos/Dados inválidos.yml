@@ -1,0 +1,39 @@
+info:
+  name: Dados inválidos
+  type: http
+  seq: 13
+
+http:
+  method: POST
+  url: "{{baseUrl}}/agendamentos"
+  headers:
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "cliente_id": "id-invalido",
+        "profissional_id": "{{profissional-id}}",
+        "servico_id": "{{servico-id}}",
+        "inicio_em": "2026-11-10T14:00:00",
+        "status": "CONFIRMADO"
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("dados inválidos retornam 400", function() {
+          expect(res.status).to.equal(400);
+          expect(res.body.codigo).to.equal("DADOS_AGENDAMENTO_INVALIDOS");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

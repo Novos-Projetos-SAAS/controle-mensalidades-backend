@@ -1,0 +1,46 @@
+info:
+  name: Criar
+  type: http
+  seq: 3
+
+http:
+  method: POST
+  url: "{{baseUrl}}/agendamentos"
+  headers:
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "cliente_id": "{{cliente-id}}",
+        "profissional_id": "{{profissional-id}}",
+        "servico_id": "{{servico-id}}",
+        "inicio_em": "2026-11-10T14:00:00-03:00",
+        "observacao": "Primeira avaliação"
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        if (res.status === 201) {
+          bru.setVar("agendamento-id", res.body.data.id);
+        }
+    - type: tests
+      code: |-
+        test("criação retorna 201", function() {
+          expect(res.status).to.equal(201);
+        });
+        test("fim é calculado pelo servidor", function() {
+          expect(res.body.data.fim_em).to.equal("2026-11-10T18:00:00.000Z");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

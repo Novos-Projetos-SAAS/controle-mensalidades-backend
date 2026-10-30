@@ -10,3 +10,17 @@ variables:
     value: ""
   - name: profissional-id
     value: ""
+  - name: cliente-id
+    value: ""
+  - name: servico-id
+    value: ""
+  - name: agendamento-id
+    value: ""
+  - name: organizacao-alternativa-id
+    value: ""
+  - name: bruno-email
+    value: ""
+  - name: bruno-senha
+    value: ""
+  - name: usuario-id
+    value: ""

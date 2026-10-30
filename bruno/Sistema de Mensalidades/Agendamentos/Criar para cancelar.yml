@@ -1,0 +1,43 @@
+info:
+  name: Criar para cancelar
+  type: http
+  seq: 11
+
+http:
+  method: POST
+  url: "{{baseUrl}}/agendamentos"
+  headers:
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "cliente_id": "{{cliente-id}}",
+        "profissional_id": "{{profissional-id}}",
+        "servico_id": "{{servico-id}}",
+        "inicio_em": "2026-11-10T17:00:00-03:00",
+        "observacao": "Agendamento destinado ao cenário de cancelamento"
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        if (res.status === 201) {
+          bru.setVar("agendamento-id", res.body.data.id);
+        }
+    - type: tests
+      code: |-
+        test("criação para cancelamento retorna 201", function() {
+          expect(res.status).to.equal(201);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

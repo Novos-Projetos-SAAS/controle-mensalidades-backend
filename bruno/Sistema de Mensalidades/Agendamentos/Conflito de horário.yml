@@ -1,0 +1,40 @@
+info:
+  name: Conflito de horário
+  type: http
+  seq: 4
+
+http:
+  method: POST
+  url: "{{baseUrl}}/agendamentos"
+  headers:
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "cliente_id": "{{cliente-id}}",
+        "profissional_id": "{{profissional-id}}",
+        "servico_id": "{{servico-id}}",
+        "inicio_em": "2026-11-10T14:15:00-03:00"
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("sobreposição retorna 409", function() {
+          expect(res.status).to.equal(409);
+        });
+        test("conflito tem código estável", function() {
+          expect(res.body.codigo).to.equal("AGENDAMENTO_HORARIO_OCUPADO");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

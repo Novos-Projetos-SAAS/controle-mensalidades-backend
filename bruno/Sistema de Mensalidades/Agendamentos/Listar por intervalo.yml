@@ -1,0 +1,31 @@
+info:
+  name: Listar por intervalo
+  type: http
+  seq: 5
+
+http:
+  method: GET
+  url: "{{baseUrl}}/agendamentos?inicio=2026-11-10T00%3A00%3A00-03%3A00&fim=2026-11-11T00%3A00%3A00-03%3A00"
+  headers:
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("listagem retorna 200", function() {
+          expect(res.status).to.equal(200);
+        });
+        test("listagem contém o agendamento criado", function() {
+          expect(res.body.data.some((item) => item.id === bru.getVar("agendamento-id"))).to.equal(true);
+        });
+
+settings:
+  encodeUrl: false
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

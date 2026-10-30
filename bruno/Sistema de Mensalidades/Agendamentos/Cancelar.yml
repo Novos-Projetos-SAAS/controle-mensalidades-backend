@@ -1,0 +1,38 @@
+info:
+  name: Cancelar
+  type: http
+  seq: 12
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/agendamentos/{{agendamento-id}}/cancelar"
+  headers:
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "motivo_cancelamento": "Solicitação do cliente"
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("cancelamento retorna 200", function() {
+          expect(res.status).to.equal(200);
+          expect(res.body.data.status).to.equal("CANCELADO");
+        });
+        test("cancelamento registra autoria", function() {
+          expect(res.body.data.cancelado_por_usuario_id).to.equal(bru.getEnvVar("usuario-id"));
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

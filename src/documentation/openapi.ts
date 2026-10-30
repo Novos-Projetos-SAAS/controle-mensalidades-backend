@@ -44,6 +44,7 @@ const parametroUsuarioPath = { $ref: '#/components/parameters/UsuarioIdPath' };
 const parametroClientePath = { $ref: '#/components/parameters/ClienteIdPath' };
 const parametroServicoPath = { $ref: '#/components/parameters/ServicoIdPath' };
 const parametroProfissionalPath = { $ref: '#/components/parameters/ProfissionalIdPath' };
+const parametroAgendamentoPath = { $ref: '#/components/parameters/AgendamentoIdPath' };
 
 const camposCliente = {
     id: {
@@ -352,7 +353,7 @@ const openApiDocument = {
         title: 'Sistema de Mensalidades API',
         version: '1.0.0',
         description:
-            'API REST v1 para autenticação, contexto organizacional e gestão de clientes, serviços e profissionais.',
+            'API REST v1 para autenticação, contexto organizacional e gestão de clientes, serviços, profissionais e agendamentos.',
     },
     servers: [
         {
@@ -377,6 +378,11 @@ const openApiDocument = {
             name: 'Profissionais',
             description:
                 'Cadastro organizacional de profissionais com vínculos a múltiplas áreas, protegido pelo módulo AGENDA.',
+        },
+        {
+            name: 'Agendamentos',
+            description:
+                'Agenda diária da área atual, com duração histórica, transições de estado e prevenção concorrente de sobreposições.',
         },
     ],
     paths: {
@@ -956,6 +962,163 @@ const openApiDocument = {
                 },
             },
         },
+        '/agendamentos': {
+            get: {
+                tags: ['Agendamentos'],
+                summary: 'Listar agendamentos sobrepostos à janela',
+                description:
+                    'Exige módulo AGENDA e perfil ADMINISTRADOR ou OPERADOR. A janela usa semântica semiaberta [inicio, fim), tem no máximo 31 dias e sempre fica restrita à organização e à área dos headers.',
+                operationId: 'listarAgendamentos',
+                security: segurancaCookie,
+                parameters: [
+                    parametroOrganizacao,
+                    parametroAreaContexto,
+                    {
+                        name: 'inicio',
+                        in: 'query',
+                        required: true,
+                        description: 'Início inclusivo da janela, com Z ou offset explícito.',
+                        schema: { type: 'string', format: 'date-time' },
+                    },
+                    {
+                        name: 'fim',
+                        in: 'query',
+                        required: true,
+                        description: 'Fim exclusivo da janela, com Z ou offset explícito.',
+                        schema: { type: 'string', format: 'date-time' },
+                    },
+                    {
+                        name: 'profissionalId',
+                        in: 'query',
+                        schema: { type: 'string', format: 'uuid' },
+                    },
+                    {
+                        name: 'clienteId',
+                        in: 'query',
+                        schema: { type: 'string', format: 'uuid' },
+                    },
+                    {
+                        name: 'status',
+                        in: 'query',
+                        schema: {
+                            type: 'string',
+                            enum: ['AGENDADO', 'CONFIRMADO', 'CONCLUIDO', 'CANCELADO'],
+                        },
+                    },
+                ],
+                responses: {
+                    '200': respostaJson(
+                        'Agendamentos da janela.',
+                        referencia('RespostaAgendamentos'),
+                    ),
+                    ...erros('400', '401', '403', '404'),
+                },
+            },
+            post: {
+                tags: ['Agendamentos'],
+                summary: 'Criar agendamento',
+                description:
+                    'Exige módulo AGENDA e perfil ADMINISTRADOR ou OPERADOR. O servidor deriva fim_em da duração atual do serviço. Cliente e profissional devem estar ativos e vinculados à área; o serviço deve pertencer à área. Sobreposições do mesmo cliente ou profissional, inclusive entre áreas da organização, retornam 409 AGENDAMENTO_HORARIO_OCUPADO. Horários adjacentes são permitidos.',
+                operationId: 'criarAgendamento',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao, parametroAreaContexto],
+                requestBody: corpoJson(referencia('CriacaoAgendamento')),
+                responses: {
+                    '201': respostaJson('Agendamento criado.', referencia('RespostaAgendamento')),
+                    ...erros('400', '401', '403', '404', '409'),
+                },
+            },
+        },
+        '/agendamentos/{agendamentoId}': {
+            get: {
+                tags: ['Agendamentos'],
+                summary: 'Consultar agendamento',
+                description:
+                    'Exige módulo AGENDA e perfil ADMINISTRADOR ou OPERADOR. Recursos de outra organização, área ou soft-deleted retornam 404.',
+                operationId: 'consultarAgendamento',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao, parametroAreaContexto, parametroAgendamentoPath],
+                responses: {
+                    '200': respostaJson(
+                        'Agendamento encontrado.',
+                        referencia('RespostaAgendamento'),
+                    ),
+                    ...erros('400', '401', '403', '404'),
+                },
+            },
+            patch: {
+                tags: ['Agendamentos'],
+                summary: 'Remarcar ou editar agendamento',
+                description:
+                    'Exige módulo AGENDA e perfil ADMINISTRADOR ou OPERADOR. Alterar somente inicio_em preserva a duração histórica; trocar servico_id usa a duração atual do novo serviço. cliente_id é imutável. CONCLUIDO e CANCELADO são terminais. Conflitos retornam 409.',
+                operationId: 'atualizarAgendamento',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao, parametroAreaContexto, parametroAgendamentoPath],
+                requestBody: corpoJson(referencia('AtualizacaoAgendamento')),
+                responses: {
+                    '200': respostaJson(
+                        'Agendamento atualizado.',
+                        referencia('RespostaAgendamento'),
+                    ),
+                    ...erros('400', '401', '403', '404', '409'),
+                },
+            },
+        },
+        '/agendamentos/{agendamentoId}/confirmar': {
+            patch: {
+                tags: ['Agendamentos'],
+                summary: 'Confirmar agendamento',
+                description:
+                    'Transição AGENDADO → CONFIRMADO. Estados incompatíveis retornam 409 AGENDAMENTO_ESTADO_INCOMPATIVEL. Exige módulo AGENDA e perfil ADMINISTRADOR ou OPERADOR.',
+                operationId: 'confirmarAgendamento',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao, parametroAreaContexto, parametroAgendamentoPath],
+                responses: {
+                    '200': respostaJson(
+                        'Agendamento confirmado.',
+                        referencia('RespostaAgendamento'),
+                    ),
+                    ...erros('400', '401', '403', '404', '409'),
+                },
+            },
+        },
+        '/agendamentos/{agendamentoId}/concluir': {
+            patch: {
+                tags: ['Agendamentos'],
+                summary: 'Concluir agendamento',
+                description:
+                    'Transições AGENDADO ou CONFIRMADO → CONCLUIDO. CONCLUIDO é terminal e continua ocupando o horário. Exige módulo AGENDA e perfil ADMINISTRADOR ou OPERADOR.',
+                operationId: 'concluirAgendamento',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao, parametroAreaContexto, parametroAgendamentoPath],
+                responses: {
+                    '200': respostaJson(
+                        'Agendamento concluído.',
+                        referencia('RespostaAgendamento'),
+                    ),
+                    ...erros('400', '401', '403', '404', '409'),
+                },
+            },
+        },
+        '/agendamentos/{agendamentoId}/cancelar': {
+            patch: {
+                tags: ['Agendamentos'],
+                summary: 'Cancelar agendamento',
+                description:
+                    'Transições AGENDADO ou CONFIRMADO → CANCELADO. Registra instante, usuário autenticado e motivo opcional; o cancelamento libera o horário. Exige módulo AGENDA e perfil ADMINISTRADOR ou OPERADOR.',
+                operationId: 'cancelarAgendamento',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao, parametroAreaContexto, parametroAgendamentoPath],
+                requestBody: corpoJson(referencia('CancelamentoAgendamento')),
+                responses: {
+                    '200': respostaJson(
+                        'Agendamento cancelado.',
+                        referencia('RespostaAgendamento'),
+                    ),
+                    ...erros('400', '401', '403', '404', '409'),
+                },
+            },
+        },
     },
     components: {
         headers: {
@@ -1013,6 +1176,12 @@ const openApiDocument = {
             },
             ProfissionalIdPath: {
                 name: 'profissionalId',
+                in: 'path',
+                required: true,
+                schema: { type: 'string', format: 'uuid' },
+            },
+            AgendamentoIdPath: {
+                name: 'agendamentoId',
                 in: 'path',
                 required: true,
                 schema: { type: 'string', format: 'uuid' },
@@ -1613,6 +1782,118 @@ const openApiDocument = {
                     status: { type: 'string', const: 'success' },
                     message: { type: 'string' },
                     data: { type: 'array', items: referencia('Servico') },
+                },
+            },
+            Agendamento: {
+                type: 'object',
+                additionalProperties: false,
+                required: [
+                    'id',
+                    'cliente_id',
+                    'profissional_id',
+                    'servico_id',
+                    'inicio_em',
+                    'fim_em',
+                    'status',
+                    'observacao',
+                    'cancelado_em',
+                    'cancelado_por_usuario_id',
+                    'motivo_cancelamento',
+                    'cliente_nome',
+                    'profissional_nome',
+                    'servico_nome',
+                ],
+                properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    cliente_id: { type: 'string', format: 'uuid' },
+                    profissional_id: { type: 'string', format: 'uuid' },
+                    servico_id: { type: 'string', format: 'uuid' },
+                    inicio_em: {
+                        type: 'string',
+                        format: 'date-time',
+                        description: 'Instante inequívoco serializado em ISO 8601.',
+                    },
+                    fim_em: {
+                        type: 'string',
+                        format: 'date-time',
+                        description: 'Fim exclusivo do intervalo histórico contratado.',
+                    },
+                    status: {
+                        type: 'string',
+                        enum: ['AGENDADO', 'CONFIRMADO', 'CONCLUIDO', 'CANCELADO'],
+                    },
+                    observacao: { type: ['string', 'null'], maxLength: 5000 },
+                    cancelado_em: { type: ['string', 'null'], format: 'date-time' },
+                    cancelado_por_usuario_id: { type: ['string', 'null'], format: 'uuid' },
+                    motivo_cancelamento: { type: ['string', 'null'], maxLength: 1000 },
+                    cliente_nome: { type: 'string' },
+                    profissional_nome: { type: 'string' },
+                    servico_nome: { type: 'string' },
+                },
+            },
+            CriacaoAgendamento: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['cliente_id', 'profissional_id', 'servico_id', 'inicio_em'],
+                properties: {
+                    cliente_id: { type: 'string', format: 'uuid' },
+                    profissional_id: { type: 'string', format: 'uuid' },
+                    servico_id: { type: 'string', format: 'uuid' },
+                    inicio_em: {
+                        type: 'string',
+                        format: 'date-time',
+                        pattern:
+                            '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$',
+                        description:
+                            'RFC 3339 com Z ou offset explícito. Horário local ambíguo é inválido.',
+                        example: '2026-11-10T14:00:00-03:00',
+                    },
+                    observacao: { type: 'string', maxLength: 5000 },
+                },
+            },
+            AtualizacaoAgendamento: {
+                type: 'object',
+                additionalProperties: false,
+                minProperties: 1,
+                description:
+                    'Aceita apenas início, profissional, serviço e observação. cliente_id, fim_em, status e campos de autoridade são proibidos. null limpa observacao.',
+                properties: {
+                    inicio_em: {
+                        type: 'string',
+                        format: 'date-time',
+                        pattern:
+                            '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$',
+                    },
+                    profissional_id: { type: 'string', format: 'uuid' },
+                    servico_id: { type: 'string', format: 'uuid' },
+                    observacao: { type: ['string', 'null'], maxLength: 5000 },
+                },
+            },
+            CancelamentoAgendamento: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                    motivo_cancelamento: { type: 'string', maxLength: 1000 },
+                },
+            },
+            RespostaAgendamento: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['status', 'message', 'data'],
+                properties: {
+                    status: { type: 'string', const: 'success' },
+                    message: { type: 'string' },
+                    data: referencia('Agendamento'),
+                },
+            },
+            RespostaAgendamentos: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['status', 'message', 'data'],
+                properties: {
+                    status: { type: 'string', const: 'success' },
+                    message: { type: 'string' },
+                    data: { type: 'array', items: referencia('Agendamento') },
                 },
             },
             RespostaClientes: {

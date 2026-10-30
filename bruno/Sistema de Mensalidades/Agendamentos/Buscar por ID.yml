@@ -1,0 +1,31 @@
+info:
+  name: Buscar por ID
+  type: http
+  seq: 7
+
+http:
+  method: GET
+  url: "{{baseUrl}}/agendamentos/{{agendamento-id}}"
+  headers:
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("detalhe retorna 200", function() {
+          expect(res.status).to.equal(200);
+        });
+        test("detalhe respeita o ID capturado", function() {
+          expect(res.body.data.id).to.equal(bru.getVar("agendamento-id"));
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,0 +1,41 @@
+info:
+  name: Atualizar e remarcar
+  type: http
+  seq: 8
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/agendamentos/{{agendamento-id}}"
+  headers:
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "inicio_em": "2026-11-10T15:00:00-03:00",
+        "profissional_id": "{{profissional-id}}",
+        "servico_id": "{{servico-id}}",
+        "observacao": "Horário remarcado"
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("remarcação retorna 200", function() {
+          expect(res.status).to.equal(200);
+        });
+        test("remarcação preserva duração de 60 minutos", function() {
+          expect(res.body.data.inicio_em).to.equal("2026-11-10T18:00:00.000Z");
+          expect(res.body.data.fim_em).to.equal("2026-11-10T19:00:00.000Z");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
