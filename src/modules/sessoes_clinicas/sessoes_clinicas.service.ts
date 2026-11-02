@@ -2,6 +2,8 @@ import AppError from '../../shared/errors/AppError.js';
 
 import sessoesClinicasRepository from './sessoes_clinicas.repository.js';
 
+import autorizacaoClinicaService from './autorizacao_clinica.service.js';
+
 import type {
     DadosCorrecaoSessaoClinica,
     DadosNovaSessaoClinica,
@@ -54,6 +56,7 @@ class SessoesClinicasService {
         organizacaoId: string | undefined,
         areaNegocioId: string | undefined,
         dados: CriarSessaoClinicaInput,
+        usuarioId?: string,
     ) {
         const contexto = validarContexto(organizacaoId, areaNegocioId);
 
@@ -70,6 +73,24 @@ class SessoesClinicasService {
 
         try {
             return await sessoesClinicasRepository.executarEmTransacao(async (transaction) => {
+                if (usuarioId !== undefined) {
+                    const identidade = await autorizacaoClinicaService.identificarProfissional(
+                        usuarioId,
+                        contexto.organizacaoId,
+                        contexto.areaNegocioId,
+                        transaction,
+                        true,
+                    );
+
+                    if (identidade.profissionalId !== dados.profissional_id) {
+                        throw new AppError(
+                            'Não é permitido registrar uma sessão para outro profissional.',
+                            403,
+                            'PROFISSIONAL_CLINICO_NAO_AUTORIZADO',
+                        );
+                    }
+                }
+
                 const cliente = await sessoesClinicasRepository.buscarClienteElegivel(
                     contexto.organizacaoId,
                     contexto.areaNegocioId,
@@ -238,6 +259,61 @@ class SessoesClinicasService {
         return sessao;
     }
 
+    async listarAutorizadas(
+        organizacaoId: string | undefined,
+        areaNegocioId: string | undefined,
+        usuarioId: string | undefined,
+        filtros: FiltrosSessoesClinicasInput,
+    ) {
+        const contexto = validarContexto(organizacaoId, areaNegocioId);
+
+        if (!usuarioId) {
+            throw new AppError('Autenticação necessária.', 401, 'AUTENTICACAO_NECESSARIA');
+        }
+
+        return sessoesClinicasRepository.listarAutorizadas(
+            contexto.organizacaoId,
+            contexto.areaNegocioId,
+            usuarioId,
+            {
+                inicio: new Date(filtros.inicio),
+                fim: new Date(filtros.fim),
+                ...(filtros.clienteId !== undefined && {
+                    clienteId: filtros.clienteId,
+                }),
+                ...(filtros.profissionalId !== undefined && {
+                    profissionalId: filtros.profissionalId,
+                }),
+            },
+        );
+    }
+
+    async buscarPorIdAutorizada(
+        organizacaoId: string | undefined,
+        areaNegocioId: string | undefined,
+        usuarioId: string | undefined,
+        sessaoClinicaId: string,
+    ) {
+        const contexto = validarContexto(organizacaoId, areaNegocioId);
+
+        if (!usuarioId) {
+            throw new AppError('Autenticação necessária.', 401, 'AUTENTICACAO_NECESSARIA');
+        }
+
+        const sessao = await sessoesClinicasRepository.buscarPorIdAutorizada(
+            contexto.organizacaoId,
+            contexto.areaNegocioId,
+            usuarioId,
+            sessaoClinicaId,
+        );
+
+        if (!sessao) {
+            throw erroSessaoNaoEncontrada();
+        }
+
+        return sessao;
+    }
+
     // Preparado para uso após implementarmos
     // o histórico de correções clínicas.
 
@@ -259,11 +335,24 @@ class SessoesClinicasService {
         }
 
         return sessoesClinicasRepository.executarEmTransacao(async (transaction) => {
-            // 1. Busca e bloqueia a sessão para evitar
-            // correções simultâneas sobre o mesmo registro.
-            const sessaoExistente = await sessoesClinicasRepository.buscarPorId(
+            // Confirma a autorização clínica dentro da transação.
+            // FOR SHARE mantém os vínculos consultados protegidos
+            // contra alterações concorrentes durante a operação.
+            await autorizacaoClinicaService.identificarProfissional(
+                usuarioId,
                 contexto.organizacaoId,
                 contexto.areaNegocioId,
+                transaction,
+                true,
+            );
+
+            // 1. Busca e bloqueia a sessão para evitar
+            // correções simultâneas sobre o mesmo registro.
+
+            const sessaoExistente = await sessoesClinicasRepository.buscarPorIdAutorizada(
+                contexto.organizacaoId,
+                contexto.areaNegocioId,
+                usuarioId,
                 sessaoClinicaId,
                 transaction,
                 true,
@@ -349,9 +438,10 @@ class SessoesClinicasService {
             );
 
             // 8. Retorna a sessão atualizada.
-            const sessaoAtualizada = await sessoesClinicasRepository.buscarPorId(
+            const sessaoAtualizada = await sessoesClinicasRepository.buscarPorIdAutorizada(
                 contexto.organizacaoId,
                 contexto.areaNegocioId,
+                usuarioId,
                 sessaoClinicaId,
                 transaction,
             );
@@ -370,25 +460,29 @@ class SessoesClinicasService {
     async listarHistoricoCorrecoes(
         organizacaoId: string | undefined,
         areaNegocioId: string | undefined,
+        usuarioId: string | undefined,
         sessaoClinicaId: string,
     ) {
         const contexto = validarContexto(organizacaoId, areaNegocioId);
 
-        // Verifica se a sessão existe na organização e área.
-        const sessao = await sessoesClinicasRepository.buscarPorId(
+        if (!usuarioId) {
+            throw new AppError('Autenticação necessária.', 401, 'AUTENTICACAO_NECESSARIA');
+        }
+
+        // Verifica a identidade clínica única, a autorização
+        // e a titularidade da sessão antes da consulta.
+        await autorizacaoClinicaService.exigirTitularidadeSessao(
+            usuarioId,
             contexto.organizacaoId,
             contexto.areaNegocioId,
             sessaoClinicaId,
         );
 
-        if (!sessao) {
-            throw erroSessaoNaoEncontrada();
-        }
-
-        // Recupera todas as correções registradas.
-        return sessoesClinicasRepository.listarHistoricoCorrecoes(
+        // O próprio SQL aplica novamente as restrições.
+        return sessoesClinicasRepository.listarHistoricoCorrecoesAutorizado(
             contexto.organizacaoId,
             contexto.areaNegocioId,
+            usuarioId,
             sessaoClinicaId,
         );
     }

@@ -32,6 +32,15 @@ sessoesClinicasRoutes.post('/', sessoesClinicasController.criar);
 // GET /sessoes-clinicas
 sessoesClinicasRoutes.get('/', sessoesClinicasController.listar);
 
+// GET /sessoes-clinicas/:sessaoClinicaId/historico
+sessoesClinicasRoutes.get(
+    '/:sessaoClinicaId/historico',
+    sessoesClinicasController.listarHistoricoCorrecoes,
+);
+
+// PATCH /sessoes-clinicas/:sessaoClinicaId
+sessoesClinicasRoutes.patch('/:sessaoClinicaId', sessoesClinicasController.corrigir);
+
 // GET /sessoes-clinicas/:sessaoClinicaId
 sessoesClinicasRoutes.get('/:sessaoClinicaId', sessoesClinicasController.buscarPorId);
 

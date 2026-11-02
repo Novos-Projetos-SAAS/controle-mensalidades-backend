@@ -1,17 +1,23 @@
 import type { NextFunction, Request, Response } from 'express';
 
 import AppError from '../../shared/errors/AppError.js';
-import auditoriaService from '../auditoria/auditoria.service.js';
 
-import sessoesClinicasService from './sessoes_clinicas.service.js';
+import auditoriaService from '../auditoria/auditoria.service.js';
+import sessoesClinicasAcessoService from './sessoes_clinicas.acesso.service.js';
+
 import {
+    validarAtualizacaoSessaoClinica,
     validarCriacaoSessaoClinica,
     validarFiltrosSessoesClinicas,
     validarSessaoClinicaId,
 } from './sessoes_clinicas.validator.js';
 
 type AcaoAuditoriaSessaoClinica =
-    'SESSAO_CLINICA.CRIADA' | 'SESSAO_CLINICA.LISTADA' | 'SESSAO_CLINICA.CONSULTADA';
+    | 'SESSAO_CLINICA.CRIADA'
+    | 'SESSAO_CLINICA.LISTADA'
+    | 'SESSAO_CLINICA.CONSULTADA'
+    | 'SESSAO_CLINICA.CORRIGIDA'
+    | 'SESSAO_CLINICA.HISTORICO_CONSULTADO';
 
 function obterContexto(req: Request) {
     if (!req.auth) {
@@ -33,6 +39,7 @@ async function registrarAuditoria(
     req: Request,
     acao: AcaoAuditoriaSessaoClinica,
     sessaoClinicaId?: string,
+    dadosContexto?: Record<string, unknown>,
 ) {
     const contexto = obterContexto(req);
 
@@ -52,6 +59,7 @@ async function registrarAuditoria(
             dadosContexto: {
                 areaNegocioId: contexto.areaNegocioId,
                 requestId: req.requestId,
+                ...dadosContexto,
             },
             ...(ip && { ip }),
             ...(userAgent && { userAgent }),
@@ -71,11 +79,7 @@ class SessoesClinicasController {
 
             const dados = validarCriacaoSessaoClinica(req.body);
 
-            const sessao = await sessoesClinicasService.criar(
-                contexto.organizacaoId,
-                contexto.areaNegocioId,
-                dados,
-            );
+            const sessao = await sessoesClinicasAcessoService.criar(contexto, dados);
 
             await registrarAuditoria(req, 'SESSAO_CLINICA.CRIADA', sessao.id);
 
@@ -95,11 +99,7 @@ class SessoesClinicasController {
 
             const filtros = validarFiltrosSessoesClinicas(req.query);
 
-            const sessoes = await sessoesClinicasService.listar(
-                contexto.organizacaoId,
-                contexto.areaNegocioId,
-                filtros,
-            );
+            const sessoes = await sessoesClinicasAcessoService.listar(contexto, filtros);
 
             await registrarAuditoria(req, 'SESSAO_CLINICA.LISTADA');
 
@@ -119,9 +119,8 @@ class SessoesClinicasController {
 
             const sessaoClinicaId = validarSessaoClinicaId(req.params.sessaoClinicaId);
 
-            const sessao = await sessoesClinicasService.buscarPorId(
-                contexto.organizacaoId,
-                contexto.areaNegocioId,
+            const sessao = await sessoesClinicasAcessoService.buscarPorId(
+                contexto,
                 sessaoClinicaId,
             );
 
@@ -131,6 +130,54 @@ class SessoesClinicasController {
                 status: 'success',
                 message: 'Sessão clínica encontrada com sucesso.',
                 data: sessao,
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async corrigir(req: Request, res: Response, next: NextFunction) {
+        try {
+            const contexto = obterContexto(req);
+            const sessaoClinicaId = validarSessaoClinicaId(req.params.sessaoClinicaId);
+            const dados = validarAtualizacaoSessaoClinica(req.body);
+
+            const resultado = await sessoesClinicasAcessoService.corrigir(
+                contexto,
+                sessaoClinicaId,
+                dados,
+            );
+
+            await registrarAuditoria(req, 'SESSAO_CLINICA.CORRIGIDA', sessaoClinicaId, {
+                camposAlterados: resultado.camposAlterados,
+            });
+
+            return res.status(200).json({
+                status: 'success',
+                message: 'Sessão clínica corrigida com sucesso.',
+                data: resultado.sessao,
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async listarHistoricoCorrecoes(req: Request, res: Response, next: NextFunction) {
+        try {
+            const contexto = obterContexto(req);
+            const sessaoClinicaId = validarSessaoClinicaId(req.params.sessaoClinicaId);
+
+            const historico = await sessoesClinicasAcessoService.listarHistoricoCorrecoes(
+                contexto,
+                sessaoClinicaId,
+            );
+
+            await registrarAuditoria(req, 'SESSAO_CLINICA.HISTORICO_CONSULTADO', sessaoClinicaId);
+
+            return res.status(200).json({
+                status: 'success',
+                message: 'Histórico de correções consultado com sucesso.',
+                data: historico,
             });
         } catch (error) {
             next(error);

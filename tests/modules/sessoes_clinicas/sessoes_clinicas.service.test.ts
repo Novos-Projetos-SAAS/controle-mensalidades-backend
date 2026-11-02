@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
+
 import crypto from 'node:crypto';
+
 import test, { after } from 'node:test';
 
 import type { Knex } from 'knex';
 
 import connection from '../../../src/database/connection.js';
+
 import sessoesClinicasRepository from '../../../src/modules/sessoes_clinicas/sessoes_clinicas.repository.js';
+
 import sessoesClinicasService from '../../../src/modules/sessoes_clinicas/sessoes_clinicas.service.js';
 
 const DATA_SESSAO = '2026-10-01T14:00:00Z';
@@ -38,7 +42,6 @@ async function prepararFixture(transaction: Knex.Transaction, fixture: Fixture):
         nome: 'Organizacao Teste Service Clinico',
         ativo: true,
     });
-
     await transaction('areas_negocio').insert({
         id: fixture.areaId,
         organizacao_id: fixture.organizacaoId,
@@ -46,7 +49,6 @@ async function prepararFixture(transaction: Knex.Transaction, fixture: Fixture):
         codigo: `FIS-SVC-${fixture.areaId.slice(0, 8)}`,
         ativo: true,
     });
-
     await transaction('usuarios').insert({
         id: fixture.usuarioId,
         nome: 'Usuario Clinico de Teste',
@@ -54,20 +56,17 @@ async function prepararFixture(transaction: Knex.Transaction, fixture: Fixture):
         senha_hash: 'hash-ficticio',
         ativo: true,
     });
-
     await transaction('clientes').insert({
         id: fixture.clienteId,
         organizacao_id: fixture.organizacaoId,
         nome: 'Paciente Clinico Ficticio',
         ativo: true,
     });
-
     await transaction('clientes_areas').insert({
         cliente_id: fixture.clienteId,
         area_negocio_id: fixture.areaId,
         ativo: true,
     });
-
     await transaction('profissionais').insert({
         id: fixture.profissionalId,
         organizacao_id: fixture.organizacaoId,
@@ -75,13 +74,11 @@ async function prepararFixture(transaction: Knex.Transaction, fixture: Fixture):
         nome: 'Profissional Clinico Ficticio',
         ativo: true,
     });
-
     await transaction('profissionais_areas').insert({
         profissional_id: fixture.profissionalId,
         area_negocio_id: fixture.areaId,
         ativo: true,
     });
-
     await transaction('servicos').insert({
         id: fixture.servicoId,
         organizacao_id: fixture.organizacaoId,
@@ -90,7 +87,6 @@ async function prepararFixture(transaction: Knex.Transaction, fixture: Fixture):
         duracao_minutos: 60,
         ativo: true,
     });
-
     await transaction('agendamentos').insert({
         id: fixture.agendamentoId,
         organizacao_id: fixture.organizacaoId,
@@ -107,27 +103,24 @@ async function prepararFixture(transaction: Knex.Transaction, fixture: Fixture):
 // O Service usa executarEmTransacao() internamente. Nos testes, usamos um
 // savepoint dentro da transacao externa para manter o rollback verdadeiro.
 // Assim, nenhum dado clinico de teste precisa ser apagado depois.
+
 async function comFixture(
     executar: (transaction: Knex.Transaction, fixture: Fixture) => Promise<void>,
 ): Promise<void> {
     const fixture = criarIds();
     const rollbackIntencional = new Error('ROLLBACK_INTENCIONAL_SERVICE_TEST');
-
     try {
         await connection.transaction(async (transaction) => {
             await prepararFixture(transaction, fixture);
-
             const executarOriginal = sessoesClinicasRepository.executarEmTransacao;
             sessoesClinicasRepository.executarEmTransacao = async <T>(
                 operacao: (tx: Knex.Transaction) => Promise<T>,
             ): Promise<T> => transaction.transaction(operacao);
-
             try {
                 await executar(transaction, fixture);
             } finally {
                 sessoesClinicasRepository.executarEmTransacao = executarOriginal;
             }
-
             throw rollbackIntencional;
         });
     } catch (error) {
@@ -152,7 +145,6 @@ function verificarErro(codigo: string, statusCode: number) {
         if (typeof error !== 'object' || error === null) {
             return false;
         }
-
         return (
             'code' in error &&
             error.code === codigo &&
@@ -166,6 +158,26 @@ after(async () => {
     await connection.destroy();
 });
 
+async function habilitarAutorizacaoClinica(
+    transaction: Knex.Transaction,
+    fixture: Fixture,
+): Promise<void> {
+    await transaction('usuarios_organizacoes').insert({
+        usuario_id: fixture.usuarioId,
+        organizacao_id: fixture.organizacaoId,
+        perfil: 'OPERADOR',
+        ativo: true,
+    });
+    await transaction('profissionais_areas')
+        .where({
+            profissional_id: fixture.profissionalId,
+            area_negocio_id: fixture.areaId,
+        })
+        .update({
+            acesso_clinico_autorizado: true,
+        });
+}
+
 test('Service cria sessao com cliente, profissional e agendamento validos', async () => {
     await comFixture(async (transaction, fixture) => {
         const sessao = await sessoesClinicasService.criar(
@@ -173,15 +185,12 @@ test('Service cria sessao com cliente, profissional e agendamento validos', asyn
             fixture.areaId,
             dadosValidos(fixture, true),
         );
-
         assert.ok(sessao.id);
         assert.equal(sessao.cliente_id, fixture.clienteId);
         assert.equal(sessao.profissional_id, fixture.profissionalId);
         assert.equal(sessao.agendamento_id, fixture.agendamentoId);
         assert.equal(sessao.cliente_nome, 'Paciente Clinico Ficticio');
-
         const persistida = await transaction('sessoes_clinicas').where('id', sessao.id).first();
-
         assert.ok(persistida);
         assert.equal(persistida.organizacao_id, fixture.organizacaoId);
         assert.equal(persistida.area_negocio_id, fixture.areaId);
@@ -199,11 +208,9 @@ test('Service permite registrar atendimentos avulsos distintos', async () => {
             ...dadosValidos(fixture),
             evolucao: 'Evolucao do segundo atendimento.',
         });
-
         assert.notEqual(primeira.id, segunda.id);
         assert.equal(primeira.agendamento_id, null);
         assert.equal(segunda.agendamento_id, null);
-
         const sessoes = await transaction('sessoes_clinicas').where({
             organizacao_id: fixture.organizacaoId,
             cliente_id: fixture.clienteId,
@@ -216,7 +223,6 @@ test('Service rejeita cliente de outra organizacao', async () => {
     await comFixture(async (transaction, fixture) => {
         const outraOrganizacaoId = crypto.randomUUID();
         const outroClienteId = crypto.randomUUID();
-
         await transaction('organizacoes').insert({
             id: outraOrganizacaoId,
             nome: 'Outra Organizacao de Teste',
@@ -228,7 +234,6 @@ test('Service rejeita cliente de outra organizacao', async () => {
             nome: 'Cliente de Outro Tenant',
             ativo: true,
         });
-
         await assert.rejects(
             sessoesClinicasService.criar(fixture.organizacaoId, fixture.areaId, {
                 ...dadosValidos(fixture),
@@ -244,7 +249,6 @@ test('Service rejeita profissional sem vinculo ativo com a area', async () => {
         await transaction('profissionais_areas')
             .where({ profissional_id: fixture.profissionalId, area_negocio_id: fixture.areaId })
             .update({ ativo: false });
-
         await assert.rejects(
             sessoesClinicasService.criar(
                 fixture.organizacaoId,
@@ -261,7 +265,6 @@ test('Service rejeita agendamento cancelado', async () => {
         await transaction('agendamentos')
             .where('id', fixture.agendamentoId)
             .update({ status: 'CANCELADO' });
-
         await assert.rejects(
             sessoesClinicasService.criar(
                 fixture.organizacaoId,
@@ -285,7 +288,6 @@ test('Service rejeita agendamento com cliente divergente', async () => {
         await transaction('agendamentos')
             .where('id', fixture.agendamentoId)
             .update({ cliente_id: outroClienteId });
-
         await assert.rejects(
             sessoesClinicasService.criar(
                 fixture.organizacaoId,
@@ -304,7 +306,6 @@ test('Service retorna 409 quando o agendamento ja possui sessao', async () => {
             fixture.areaId,
             dadosValidos(fixture, true),
         );
-
         await assert.rejects(
             sessoesClinicasService.criar(
                 fixture.organizacaoId,
@@ -330,12 +331,12 @@ test('Service rejeita uma sessao com data futura', async () => {
 
 test('Service corrige a evolucao e registra valores anteriores e novos', async () => {
     await comFixture(async (transaction, fixture) => {
+        await habilitarAutorizacaoClinica(transaction, fixture);
         const sessao = await sessoesClinicasService.criar(
             fixture.organizacaoId,
             fixture.areaId,
             dadosValidos(fixture),
         );
-
         const resultado = await sessoesClinicasService.corrigir(
             fixture.organizacaoId,
             fixture.areaId,
@@ -343,14 +344,11 @@ test('Service corrige a evolucao e registra valores anteriores e novos', async (
             sessao.id,
             { evolucao: 'Paciente apresentou melhora da mobilidade.' },
         );
-
         assert.deepEqual(resultado.camposAlterados, ['evolucao']);
         assert.equal(resultado.sessao.evolucao, 'Paciente apresentou melhora da mobilidade.');
-
         const historico = await transaction('historico_correcoes_sessoes_clinicas')
             .where('sessao_clinica_id', sessao.id)
             .first();
-
         assert.ok(historico);
         assert.deepEqual(historico.campos_alterados, ['evolucao']);
         assert.equal(
@@ -364,12 +362,12 @@ test('Service corrige a evolucao e registra valores anteriores e novos', async (
 
 test('Service preserva duas correcoes distintas em ordem cronologica', async () => {
     await comFixture(async (transaction, fixture) => {
+        await habilitarAutorizacaoClinica(transaction, fixture);
         const sessao = await sessoesClinicasService.criar(
             fixture.organizacaoId,
             fixture.areaId,
             dadosValidos(fixture),
         );
-
         await sessoesClinicasService.corrigir(
             fixture.organizacaoId,
             fixture.areaId,
@@ -384,12 +382,10 @@ test('Service preserva duas correcoes distintas em ordem cronologica', async () 
             sessao.id,
             { evolucao: 'Segunda correcao.' },
         );
-
         const historicos = await transaction('historico_correcoes_sessoes_clinicas')
             .where('sessao_clinica_id', sessao.id)
             .orderBy('criado_em', 'asc')
             .orderBy('id', 'asc');
-
         assert.equal(historicos.length, 2);
         assert.deepEqual(
             historicos.map((registro) => registro.dados_novos.evolucao).sort(),
@@ -402,7 +398,6 @@ test('Service preserva duas correcoes distintas em ordem cronologica', async () 
         );
         assert.ok(segundaCorrecao);
         assert.equal(segundaCorrecao.dados_anteriores.evolucao, 'Primeira correcao.');
-
         const atual = await transaction('sessoes_clinicas').where('id', sessao.id).first();
         assert.equal(atual.evolucao, 'Segunda correcao.');
     });
@@ -410,11 +405,11 @@ test('Service preserva duas correcoes distintas em ordem cronologica', async () 
 
 test('Service aceita limpar campo nullable e preserva o valor anterior', async () => {
     await comFixture(async (transaction, fixture) => {
+        await habilitarAutorizacaoClinica(transaction, fixture);
         const sessao = await sessoesClinicasService.criar(fixture.organizacaoId, fixture.areaId, {
             ...dadosValidos(fixture),
             prognostico: 'Prognostico anterior.',
         });
-
         await sessoesClinicasService.corrigir(
             fixture.organizacaoId,
             fixture.areaId,
@@ -422,14 +417,12 @@ test('Service aceita limpar campo nullable e preserva o valor anterior', async (
             sessao.id,
             { prognostico: null },
         );
-
         const historico = await transaction('historico_correcoes_sessoes_clinicas')
             .where('sessao_clinica_id', sessao.id)
             .first();
         assert.ok(historico);
         assert.equal(historico.dados_anteriores.prognostico, 'Prognostico anterior.');
         assert.equal(historico.dados_novos.prognostico, null);
-
         const sessaoAtual = await transaction('sessoes_clinicas').where('id', sessao.id).first();
         assert.equal(sessaoAtual.prognostico, null);
     });
@@ -437,13 +430,13 @@ test('Service aceita limpar campo nullable e preserva o valor anterior', async (
 
 test('Service nao gera historico quando o conteudo nao mudou', async () => {
     await comFixture(async (transaction, fixture) => {
+        await habilitarAutorizacaoClinica(transaction, fixture);
         const dados = dadosValidos(fixture);
         const sessao = await sessoesClinicasService.criar(
             fixture.organizacaoId,
             fixture.areaId,
             dados,
         );
-
         await assert.rejects(
             sessoesClinicasService.corrigir(
                 fixture.organizacaoId,
@@ -454,7 +447,6 @@ test('Service nao gera historico quando o conteudo nao mudou', async () => {
             ),
             verificarErro('SESSAO_CLINICA_SEM_ALTERACOES', 400),
         );
-
         const historicos = await transaction('historico_correcoes_sessoes_clinicas').where(
             'sessao_clinica_id',
             sessao.id,
@@ -465,17 +457,16 @@ test('Service nao gera historico quando o conteudo nao mudou', async () => {
 
 test('falha ao salvar o historico reverte a alteracao clinica no savepoint', async () => {
     await comFixture(async (transaction, fixture) => {
+        await habilitarAutorizacaoClinica(transaction, fixture);
         const sessao = await sessoesClinicasService.criar(
             fixture.organizacaoId,
             fixture.areaId,
             dadosValidos(fixture),
         );
-
         const registrarOriginal = sessoesClinicasRepository.registrarHistoricoCorrecao;
         sessoesClinicasRepository.registrarHistoricoCorrecao = async () => {
             throw new Error('FALHA_SIMULADA_HISTORICO');
         };
-
         try {
             await assert.rejects(
                 sessoesClinicasService.corrigir(
@@ -490,11 +481,224 @@ test('falha ao salvar o historico reverte a alteracao clinica no savepoint', asy
         } finally {
             sessoesClinicasRepository.registrarHistoricoCorrecao = registrarOriginal;
         }
-
         const persistida = await transaction('sessoes_clinicas').where('id', sessao.id).first();
         assert.equal(persistida.evolucao, 'Paciente realizou exercicios sem intercorrencias.');
         assert.equal(persistida.corrigido_em, null);
+        const historicos = await transaction('historico_correcoes_sessoes_clinicas').where(
+            'sessao_clinica_id',
+            sessao.id,
+        );
+        assert.equal(historicos.length, 0);
+    });
+});
 
+test('criação autorizada valida o profissional dentro da transação', async () => {
+    await comFixture(async (transaction, fixture) => {
+        await transaction('usuarios_organizacoes').insert({
+            usuario_id: fixture.usuarioId,
+            organizacao_id: fixture.organizacaoId,
+            perfil: 'OPERADOR',
+            ativo: true,
+        });
+        await transaction('profissionais_areas')
+            .where({
+                profissional_id: fixture.profissionalId,
+                area_negocio_id: fixture.areaId,
+            })
+            .update({
+                acesso_clinico_autorizado: true,
+            });
+        const sessao = await sessoesClinicasService.criar(
+            fixture.organizacaoId,
+            fixture.areaId,
+            dadosValidos(fixture),
+            fixture.usuarioId,
+        );
+        assert.equal(sessao.profissional_id, fixture.profissionalId);
+        const registro = await transaction('sessoes_clinicas').where('id', sessao.id).first();
+        assert.ok(registro);
+        assert.equal(registro.profissional_id, fixture.profissionalId);
+    });
+});
+
+test('criação autorizada é negada após revogação da permissão clínica', async () => {
+    await comFixture(async (transaction, fixture) => {
+        await transaction('usuarios_organizacoes').insert({
+            usuario_id: fixture.usuarioId,
+            organizacao_id: fixture.organizacaoId,
+            perfil: 'OPERADOR',
+            ativo: true,
+        });
+        await transaction('profissionais_areas')
+            .where({
+                profissional_id: fixture.profissionalId,
+                area_negocio_id: fixture.areaId,
+            })
+            .update({
+                acesso_clinico_autorizado: false,
+            });
+        await assert.rejects(
+            sessoesClinicasService.criar(
+                fixture.organizacaoId,
+                fixture.areaId,
+                dadosValidos(fixture),
+                fixture.usuarioId,
+            ),
+            verificarErro('ACESSO_CLINICO_NEGADO', 403),
+        );
+        const sessoes = await transaction('sessoes_clinicas').where({
+            organizacao_id: fixture.organizacaoId,
+            cliente_id: fixture.clienteId,
+        });
+        assert.equal(sessoes.length, 0);
+    });
+});
+
+test('criação autorizada impede registrar sessão para outro profissional elegível', async () => {
+    await comFixture(async (transaction, fixture) => {
+        const outroProfissionalId = crypto.randomUUID();
+        await transaction('usuarios_organizacoes').insert({
+            usuario_id: fixture.usuarioId,
+            organizacao_id: fixture.organizacaoId,
+            perfil: 'OPERADOR',
+            ativo: true,
+        });
+        await transaction('profissionais_areas')
+            .where({
+                profissional_id: fixture.profissionalId,
+                area_negocio_id: fixture.areaId,
+            })
+            .update({
+                acesso_clinico_autorizado: true,
+            });
+        await transaction('profissionais').insert({
+            id: outroProfissionalId,
+            organizacao_id: fixture.organizacaoId,
+            nome: 'Outro profissional elegível',
+            ativo: true,
+        });
+        await transaction('profissionais_areas').insert({
+            profissional_id: outroProfissionalId,
+            area_negocio_id: fixture.areaId,
+            ativo: true,
+        });
+        await assert.rejects(
+            sessoesClinicasService.criar(
+                fixture.organizacaoId,
+                fixture.areaId,
+                {
+                    ...dadosValidos(fixture),
+                    profissional_id: outroProfissionalId,
+                },
+                fixture.usuarioId,
+            ),
+            verificarErro('PROFISSIONAL_CLINICO_NAO_AUTORIZADO', 403),
+        );
+        const sessoes = await transaction('sessoes_clinicas').where({
+            organizacao_id: fixture.organizacaoId,
+            profissional_id: outroProfissionalId,
+        });
+        assert.equal(sessoes.length, 0);
+    });
+});
+
+test('nega correção clínica sem autorização profissional', async () => {
+    await comFixture(async (transaction, fixture) => {
+        const sessao = await sessoesClinicasService.criar(
+            fixture.organizacaoId,
+            fixture.areaId,
+            dadosValidos(fixture),
+        );
+        // A fixture inicial não concede autorização clínica.
+        await assert.rejects(
+            sessoesClinicasService.corrigir(
+                fixture.organizacaoId,
+                fixture.areaId,
+                fixture.usuarioId,
+                sessao.id,
+                { evolucao: 'Alteração indevida.' },
+            ),
+            verificarErro('ACESSO_CLINICO_NEGADO', 403),
+        );
+        const persistida = await transaction('sessoes_clinicas').where('id', sessao.id).first();
+        assert.ok(persistida);
+        assert.equal(persistida.evolucao, dadosValidos(fixture).evolucao);
+        const historicos = await transaction('historico_correcoes_sessoes_clinicas').where(
+            'sessao_clinica_id',
+            sessao.id,
+        );
+        assert.equal(historicos.length, 0);
+    });
+});
+
+test('profissional autorizado não corrige sessão de outro profissional', async () => {
+    await comFixture(async (transaction, fixture) => {
+        await habilitarAutorizacaoClinica(transaction, fixture);
+        const outroProfissionalId = crypto.randomUUID();
+        const outraSessaoId = crypto.randomUUID();
+        await transaction('profissionais').insert({
+            id: outroProfissionalId,
+            organizacao_id: fixture.organizacaoId,
+            nome: 'Outro profissional da clínica',
+            ativo: true,
+        });
+        await transaction('sessoes_clinicas').insert({
+            id: outraSessaoId,
+            organizacao_id: fixture.organizacaoId,
+            area_negocio_id: fixture.areaId,
+            cliente_id: fixture.clienteId,
+            profissional_id: outroProfissionalId,
+            data_sessao: new Date(DATA_SESSAO),
+            evolucao: 'Registro original de outro profissional.',
+        });
+        await assert.rejects(
+            sessoesClinicasService.corrigir(
+                fixture.organizacaoId,
+                fixture.areaId,
+                fixture.usuarioId,
+                outraSessaoId,
+                { evolucao: 'Tentativa de alteração indevida.' },
+            ),
+            verificarErro('SESSAO_CLINICA_NAO_ENCONTRADA', 404),
+        );
+        const persistida = await transaction('sessoes_clinicas').where('id', outraSessaoId).first();
+        assert.ok(persistida);
+        assert.equal(persistida.evolucao, 'Registro original de outro profissional.');
+        const historicos = await transaction('historico_correcoes_sessoes_clinicas').where(
+            'sessao_clinica_id',
+            outraSessaoId,
+        );
+        assert.equal(historicos.length, 0);
+    });
+});
+
+test('revogação clínica impede novas correções', async () => {
+    await comFixture(async (transaction, fixture) => {
+        await habilitarAutorizacaoClinica(transaction, fixture);
+        const sessao = await sessoesClinicasService.criar(
+            fixture.organizacaoId,
+            fixture.areaId,
+            dadosValidos(fixture),
+        );
+        await transaction('profissionais_areas')
+            .where({
+                profissional_id: fixture.profissionalId,
+                area_negocio_id: fixture.areaId,
+            })
+            .update({ acesso_clinico_autorizado: false });
+        await assert.rejects(
+            sessoesClinicasService.corrigir(
+                fixture.organizacaoId,
+                fixture.areaId,
+                fixture.usuarioId,
+                sessao.id,
+                { evolucao: 'Correção após revogação.' },
+            ),
+            verificarErro('ACESSO_CLINICO_NEGADO', 403),
+        );
+        const persistida = await transaction('sessoes_clinicas').where('id', sessao.id).first();
+        assert.ok(persistida);
+        assert.equal(persistida.evolucao, dadosValidos(fixture).evolucao);
         const historicos = await transaction('historico_correcoes_sessoes_clinicas').where(
             'sessao_clinica_id',
             sessao.id,

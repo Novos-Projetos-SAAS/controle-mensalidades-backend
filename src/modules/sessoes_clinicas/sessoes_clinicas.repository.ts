@@ -105,6 +105,57 @@ function consultaBase(executor: ExecutorBanco) {
         });
 }
 
+function consultaClinicaAutorizada(
+    executor: ExecutorBanco,
+    organizacaoId: string,
+    areaNegocioId: string,
+    usuarioId: string,
+) {
+    return consultaBase(executor)
+        .innerJoin('profissionais_areas as pa', function () {
+            this.on('pa.profissional_id', '=', 'p.id').andOn(
+                'pa.area_negocio_id',
+                '=',
+                'sc.area_negocio_id',
+            );
+        })
+        .innerJoin('usuarios as u', 'u.id', 'p.usuario_id')
+        .innerJoin('usuarios_organizacoes as uo', function () {
+            this.on('uo.usuario_id', '=', 'u.id').andOn(
+                'uo.organizacao_id',
+                '=',
+                'sc.organizacao_id',
+            );
+        })
+        .innerJoin('areas_negocio as a', function () {
+            this.on('a.id', '=', 'sc.area_negocio_id').andOn(
+                'a.organizacao_id',
+                '=',
+                'sc.organizacao_id',
+            );
+        })
+        .innerJoin('organizacoes as o', 'o.id', 'sc.organizacao_id')
+        .where({
+            'sc.organizacao_id': organizacaoId,
+            'sc.area_negocio_id': areaNegocioId,
+            'p.usuario_id': usuarioId,
+            'p.ativo': true,
+            'pa.ativo': true,
+            'pa.acesso_clinico_autorizado': true,
+            'u.ativo': true,
+            'uo.ativo': true,
+            'a.ativo': true,
+            'o.ativo': true,
+        })
+        .whereNull('sc.deletado_em')
+        .whereNull('p.deletado_em')
+        .whereNull('pa.deletado_em')
+        .whereNull('u.deletado_em')
+        .whereNull('uo.deletado_em')
+        .whereNull('a.deletado_em')
+        .whereNull('o.deletado_em');
+}
+
 class SessoesClinicasRepository {
     async executarEmTransacao<T>(
         operacao: (transaction: Knex.Transaction) => Promise<T>,
@@ -261,6 +312,36 @@ class SessoesClinicasRepository {
         return sessoes as SessaoClinicaResumo[];
     }
 
+    async listarAutorizadas(
+        organizacaoId: string,
+        areaNegocioId: string,
+        usuarioId: string,
+        filtros: FiltrosListagem,
+        executor: ExecutorBanco = connection,
+    ): Promise<SessaoClinicaResumo[]> {
+        const consulta = consultaClinicaAutorizada(
+            executor,
+            organizacaoId,
+            areaNegocioId,
+            usuarioId,
+        )
+            .select(...camposResumo)
+            .andWhere('sc.data_sessao', '>=', filtros.inicio)
+            .andWhere('sc.data_sessao', '<', filtros.fim);
+
+        if (filtros.clienteId) {
+            consulta.andWhere('sc.cliente_id', filtros.clienteId);
+        }
+
+        if (filtros.profissionalId) {
+            consulta.andWhere('sc.profissional_id', filtros.profissionalId);
+        }
+
+        const sessoes = await consulta.orderBy('sc.data_sessao', 'desc').orderBy('sc.id', 'asc');
+
+        return sessoes as SessaoClinicaResumo[];
+    }
+
     // ROTA GET /sessoes-clinicas/:sessaoClinicaId
     async buscarPorId(
         organizacaoId: string,
@@ -278,6 +359,33 @@ class SessoesClinicasRepository {
             })
             .whereNull('sc.deletado_em');
 
+        if (bloquear) {
+            consulta.forUpdate('sc');
+        }
+
+        const sessao = await consulta.first();
+
+        return sessao as SessaoClinicaDetalhe | undefined;
+    }
+
+    async buscarPorIdAutorizada(
+        organizacaoId: string,
+        areaNegocioId: string,
+        usuarioId: string,
+        sessaoClinicaId: string,
+        executor: ExecutorBanco = connection,
+        bloquear = false,
+    ): Promise<SessaoClinicaDetalhe | undefined> {
+        const consulta = consultaClinicaAutorizada(
+            executor,
+            organizacaoId,
+            areaNegocioId,
+            usuarioId,
+        )
+            .select(...camposResumo, ...camposDetalhe)
+            .andWhere('sc.id', sessaoClinicaId);
+
+        // Protege a sessão contra correções simultâneas.
         if (bloquear) {
             consulta.forUpdate('sc');
         }
@@ -326,6 +434,41 @@ class SessoesClinicasRepository {
                 'sc.area_negocio_id': areaNegocioId,
             })
             .whereNull('sc.deletado_em')
+            .orderBy('hc.criado_em', 'asc')
+            .orderBy('hc.id', 'asc');
+
+        return historico as HistoricoCorrecaoSessaoClinica[];
+    }
+
+    async listarHistoricoCorrecoesAutorizado(
+        organizacaoId: string,
+        areaNegocioId: string,
+        usuarioId: string,
+        sessaoClinicaId: string,
+        executor: ExecutorBanco = connection,
+    ): Promise<HistoricoCorrecaoSessaoClinica[]> {
+        const historico = await consultaClinicaAutorizada(
+            executor,
+            organizacaoId,
+            areaNegocioId,
+            usuarioId,
+        )
+            .innerJoin(
+                'historico_correcoes_sessoes_clinicas as hc',
+                'hc.sessao_clinica_id',
+                'sc.id',
+            )
+            .select(
+                'hc.id',
+                'hc.sessao_clinica_id',
+                'hc.corrigido_por_usuario_id',
+                'hc.campos_alterados',
+                'hc.dados_anteriores',
+                'hc.dados_novos',
+                'hc.criado_em',
+            )
+            .andWhere('sc.id', sessaoClinicaId)
+            .whereNull('hc.deletado_em')
             .orderBy('hc.criado_em', 'asc')
             .orderBy('hc.id', 'asc');
 
