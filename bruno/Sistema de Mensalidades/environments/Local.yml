@@ -24,3 +24,11 @@ variables:
     value: ""
   - name: usuario-id
     value: ""
+  - name: clinico-admin-email
+    value: ""
+  - secret: true
+    name: clinico-admin-senha
+  - name: clinico-operador-email
+    value: ""
+  - secret: true
+    name: clinico-operador-senha

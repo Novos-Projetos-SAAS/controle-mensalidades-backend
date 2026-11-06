@@ -1,0 +1,31 @@
+info:
+  name: 09 - Prontuarios bloqueados
+  type: http
+  seq: 9
+
+http:
+  method: GET
+  url: "{{baseUrl}}/sessoes-clinicas"
+  headers:
+    - name: Cookie
+      value: "{{clinico-admin-cookie}}"
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("prontuários permanecem fora da API pública", function() {
+          expect(res.status).to.equal(404);
+          expect(res.body.codigo).to.equal("ROTA_NAO_ENCONTRADA");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

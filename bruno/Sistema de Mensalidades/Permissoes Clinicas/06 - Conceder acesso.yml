@@ -1,0 +1,52 @@
+info:
+  name: 06 - Conceder acesso
+  type: http
+  seq: 6
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/profissionais/{{profissional-id}}/acesso-clinico"
+  headers:
+    - name: Cookie
+      value: "{{clinico-admin-cookie}}"
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "autorizado": true
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("administrador concede acesso clínico", function() {
+          expect(res.status).to.equal(200);
+          expect(res.body.data.autorizado).to.equal(true);
+          expect(res.body.data.profissionalId).to.equal(bru.getEnvVar("profissional-id"));
+          expect(res.body.data.areaNegocioId).to.equal(bru.getEnvVar("area-negocio-id"));
+        });
+        test("resposta não expõe prontuário", function() {
+          const resposta = JSON.stringify(res.body).toLowerCase();
+          [
+            "evolucao",
+            "diagnostico",
+            "prognostico",
+            "plano_terapeutico",
+            "observacoes",
+            "historico"
+          ].forEach(function(campo) {
+            expect(resposta).not.to.contain(campo);
+          });
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

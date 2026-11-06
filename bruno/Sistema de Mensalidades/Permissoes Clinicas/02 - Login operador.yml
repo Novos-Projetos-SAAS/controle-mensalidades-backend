@@ -1,0 +1,47 @@
+info:
+  name: 02 - Login operador
+  type: http
+  seq: 2
+
+http:
+  method: POST
+  url: "{{baseUrl}}/auth/login"
+  body:
+    type: json
+    data: |-
+      {
+        "email": "{{clinico-operador-email}}",
+        "senha": "{{clinico-operador-senha}}"
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        if (res.status === 200) {
+          const setCookie = res.getHeader("set-cookie");
+          const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
+          const tokenCookie = cookies
+            .filter(Boolean)
+            .map(String)
+            .find(function(cookie) { return cookie.startsWith("token="); });
+
+          if (tokenCookie) {
+            bru.setVar("clinico-operador-cookie", tokenCookie.split(";")[0]);
+          }
+        }
+    - type: tests
+      code: |-
+        test("login do operador retorna 200", function() {
+          expect(res.status).to.equal(200);
+        });
+        test("login do operador recebe cookie token", function() {
+          expect(bru.getVar("clinico-operador-cookie")).to.match(/^token=.+/);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -962,6 +962,30 @@ const openApiDocument = {
                 },
             },
         },
+        '/profissionais/{profissionalId}/acesso-clinico': {
+            patch: {
+                tags: ['Profissionais'],
+                summary: 'Conceder ou revogar acesso clínico',
+                description:
+                    'Exige perfil ADMINISTRADOR, organização e área ativas, e módulo AGENDA habilitado. A concessão exige profissional ativo, vínculo ativo com a área e usuário autenticável vinculado à organização. Toda alteração de permissão é auditada na mesma transação. Não concede acesso automático a prontuários de outros profissionais.',
+                operationId: 'alterarPermissaoClinicaProfissional',
+                security: segurancaCookie,
+                parameters: [
+                    parametroOrganizacao,
+                    parametroAreaContexto,
+                    parametroProfissionalPath,
+                ],
+                requestBody: corpoJson(referencia('AlteracaoPermissaoClinica')),
+                responses: {
+                    '200': respostaJson(
+                        'Permissão clínica atualizada.',
+                        referencia('RespostaPermissaoClinica'),
+                    ),
+                    ...erros('400', '401', '403', '404', '409'),
+                },
+            },
+        },
+
         '/agendamentos': {
             get: {
                 tags: ['Agendamentos'],
@@ -1585,6 +1609,54 @@ const openApiDocument = {
                     data: referencia('EstadoConsentimentoWhatsapp'),
                 },
             },
+
+            AlteracaoPermissaoClinica: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['autorizado'],
+                description:
+                    'true concede autorização clínica. false revoga. A operação exige permissão administrativa e todos os vínculos válidos.',
+                properties: {
+                    autorizado: {
+                        type: 'boolean',
+                        description: 'Estado desejado da autorização clínica.',
+                    },
+                },
+            },
+            EstadoPermissaoClinica: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['profissionalId', 'areaNegocioId', 'autorizado'],
+                properties: {
+                    profissionalId: {
+                        type: 'string',
+                        format: 'uuid',
+                    },
+                    areaNegocioId: {
+                        type: 'string',
+                        format: 'uuid',
+                    },
+                    autorizado: {
+                        type: 'boolean',
+                    },
+                },
+            },
+            RespostaPermissaoClinica: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['status', 'message', 'data'],
+                properties: {
+                    status: {
+                        type: 'string',
+                        const: 'success',
+                    },
+                    message: {
+                        type: 'string',
+                    },
+                    data: referencia('EstadoPermissaoClinica'),
+                },
+            },
+
             AreaVinculadaProfissional: {
                 type: 'object',
                 additionalProperties: false,

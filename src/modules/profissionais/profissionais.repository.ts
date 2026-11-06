@@ -303,7 +303,7 @@ class ProfissionaisRepository {
         profissionalId: string,
         transaction: Knex.Transaction,
     ): Promise<void> {
-        await transaction('profissionais')
+        const alterados = await transaction('profissionais')
             .where({
                 id: profissionalId,
                 organizacao_id: organizacaoId,
@@ -313,6 +313,16 @@ class ProfissionaisRepository {
                 ativo: false,
                 inativado_em: transaction.fn.now(),
             });
+
+        // Inativar um profissional revoga suas permissões clínicas.
+        // Uma futura reativação não restaura esses acessos.
+        if (alterados > 0) {
+            await transaction('profissionais_areas')
+                .where('profissional_id', profissionalId)
+                .update({
+                    acesso_clinico_autorizado: false,
+                });
+        }
     }
 
     async reativarProfissional(
@@ -349,22 +359,35 @@ class ProfissionaisRepository {
             vinculosExistentes.map((vinculo) => vinculo.area_negocio_id),
         );
 
+        // 1. Remover área também revoga autorização clínica.
         await transaction('profissionais_areas')
             .where('profissional_id', profissionalId)
             .whereNull('deletado_em')
             .whereNotIn('area_negocio_id', areasIds)
             .update({
                 ativo: false,
+                acesso_clinico_autorizado: false,
             });
 
+        // 2. Reativar área não recupera permissões antigas.
+        // Áreas continuamente ativas preservam sua autorização.
         await transaction('profissionais_areas')
             .where('profissional_id', profissionalId)
             .whereIn('area_negocio_id', areasIds)
             .update({
                 ativo: true,
                 deletado_em: null,
+                acesso_clinico_autorizado: transaction.raw(`
+                CASE
+                    WHEN ativo = TRUE AND deletado_em IS NULL
+                        THEN acesso_clinico_autorizado
+                    ELSE FALSE
+                END
+            `),
             });
 
+        // 3. Vínculos novos começam sem autorização clínica,
+        // conforme o padrão definido na migration 059.
         const novasAreasIds = areasIds.filter((areaId) => !areasExistentes.has(areaId));
 
         if (novasAreasIds.length > 0) {

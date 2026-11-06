@@ -46,6 +46,7 @@ const operacoesEsperadas: Record<string, string[]> = {
     '/profissionais/{profissionalId}': ['get', 'patch'],
     '/profissionais/{profissionalId}/inativar': ['patch'],
     '/profissionais/{profissionalId}/reativar': ['patch'],
+    '/profissionais/{profissionalId}/acesso-clinico': ['patch'],
     '/agendamentos': ['get', 'post'],
     '/agendamentos/{agendamentoId}': ['get', 'patch'],
     '/agendamentos/{agendamentoId}/confirmar': ['patch'],
@@ -615,4 +616,57 @@ test('OpenAPI não deve conter referências locais quebradas', () => {
     }
 
     visitar(raiz);
+});
+
+test('OpenAPI documenta concessão e revogação clínica com segurança', () => {
+    const caminho = '/profissionais/{profissionalId}/acesso-clinico';
+
+    const operacao = documento.paths[caminho]?.patch;
+
+    assert.ok(operacao);
+
+    assert.deepEqual(operacao.security, [{ cookieAuth: [] }]);
+
+    assert.equal(possuiParametro(operacao, 'x-organizacao-id'), true);
+
+    assert.equal(possuiParametro(operacao, 'x-area-negocio-id'), true);
+
+    assert.equal(possuiParametro(operacao, 'profissionalId'), true);
+
+    assert.match(String(operacao.description), /ADMINISTRADOR/);
+
+    assert.match(String(operacao.description), /AGENDA/);
+
+    const corpo = documento.components.schemas.AlteracaoPermissaoClinica;
+
+    assert.equal(corpo?.additionalProperties, false);
+
+    assert.deepEqual(corpo?.required, ['autorizado']);
+
+    const propriedades = corpo?.properties as ObjetoJson;
+
+    assert.deepEqual(Object.keys(propriedades), ['autorizado']);
+
+    assert.equal((propriedades.autorizado as ObjetoJson).type, 'boolean');
+
+    const conteudo = operacao.requestBody?.content as ObjetoJson;
+    const json = conteudo['application/json'] as ObjetoJson;
+
+    assert.deepEqual(json.schema, {
+        $ref: '#/components/schemas/AlteracaoPermissaoClinica',
+    });
+
+    const resposta = documento.components.schemas.RespostaPermissaoClinica;
+
+    assert.equal(resposta?.additionalProperties, false);
+
+    const propriedadesResposta = resposta?.properties as ObjetoJson;
+
+    assert.deepEqual(propriedadesResposta.data, {
+        $ref: '#/components/schemas/EstadoPermissaoClinica',
+    });
+
+    for (const status of ['200', '400', '401', '403', '404', '409']) {
+        assert.ok(operacao.responses?.[status], `Resposta HTTP ${status} não documentada`);
+    }
 });

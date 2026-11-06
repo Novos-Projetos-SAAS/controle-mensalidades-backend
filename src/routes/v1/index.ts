@@ -12,6 +12,7 @@ import clientesRoutes from '../../modules/clientes/clientes.routes.js';
 import servicosRoutes from '../../modules/servicos/servicos.routes.js';
 import profissionaisRoutes from '../../modules/profissionais/profissionais.routes.js';
 import agendamentosRoutes from '../../modules/agendamentos/agendamentos.routes.js';
+import permissoesClinicasRoutes from '../../modules/profissionais/permissoes_clinicas.routes.js';
 
 const v1Routes = Router();
 
@@ -25,7 +26,13 @@ v1Routes.use('/organizacoes', organizacoesRoutes);
 v1Routes.use('/usuarios', usuariosRoutes);
 v1Routes.use('/clientes', clientesRoutes);
 v1Routes.use('/servicos', servicosRoutes);
+
 v1Routes.use('/profissionais', profissionaisRoutes);
+
+// A rota administrativa vem depois do roteador de profissionais.
+// Assim, também passa pela verificação do módulo AGENDA.
+v1Routes.use('/profissionais', permissoesClinicasRoutes);
+
 v1Routes.use('/agendamentos', agendamentosRoutes);
 
 export default v1Routes;

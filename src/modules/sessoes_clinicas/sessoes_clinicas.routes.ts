@@ -13,7 +13,7 @@ const sessoesClinicasRoutes = Router();
 // Bloqueio temporário até implementarmos autorização clínica específica.
 // Mesmo que alguém monte estas rotas antes da conclusão,
 // nenhuma operação clínica será permitida.
-function exigirAutorizacaoClinica(_req: Request, _res: Response, next: NextFunction) {
+export function exigirAutorizacaoClinica(_req: Request, _res: Response, next: NextFunction) {
     next(
         new AppError(
             'Acesso clínico ainda não configurado.',

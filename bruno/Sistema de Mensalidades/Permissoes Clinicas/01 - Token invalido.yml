@@ -1,0 +1,39 @@
+info:
+  name: 01 - Token invalido
+  type: http
+  seq: 1
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/profissionais/{{profissional-id}}/acesso-clinico"
+  headers:
+    - name: Cookie
+      value: token=token-invalido
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "autorizado": true
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("token inválido retorna 401", function() {
+          expect(res.status).to.equal(401);
+        });
+        test("erro identifica token inválido", function() {
+          expect(res.body.codigo).to.equal("TOKEN_INVALIDO");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
