@@ -1,0 +1,40 @@
+info:
+  name: 04 - Operador bloqueado
+  type: http
+  seq: 4
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/profissionais/{{vinculo-profissional-id}}/usuario"
+  headers:
+    - name: Cookie
+      value: "{{vinculo-operador-cookie}}"
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "usuarioId": "{{vinculo-usuario-id}}"
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("operador é bloqueado com 403", function() {
+          expect(res.status).to.equal(403);
+          expect(res.body.codigo).to.equal("PERFIL_NAO_AUTORIZADO");
+        });
+        test("resposta não simula vínculo", function() {
+          expect(res.body.data).to.equal(undefined);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

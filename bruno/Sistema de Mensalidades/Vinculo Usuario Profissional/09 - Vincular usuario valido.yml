@@ -1,0 +1,54 @@
+info:
+  name: 09 - Vincular usuario valido
+  type: http
+  seq: 9
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/profissionais/{{vinculo-profissional-id}}/usuario"
+  headers:
+    - name: Cookie
+      value: "{{vinculo-admin-cookie}}"
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "usuarioId": "{{vinculo-usuario-id}}"
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("administrador vincula usuário válido", function() {
+          expect(res.status).to.equal(200);
+          expect(res.body.status).to.equal("success");
+          expect(res.body.data.profissionalId).to.equal(bru.getEnvVar("vinculo-profissional-id"));
+          expect(res.body.data.usuarioId).to.equal(bru.getEnvVar("vinculo-usuario-id"));
+        });
+        test("resposta não expõe dados clínicos ou sensíveis", function() {
+          const resposta = JSON.stringify(res.body).toLowerCase();
+          [
+            "senha",
+            "token",
+            "cookie",
+            "evolucao",
+            "diagnostico",
+            "prognostico",
+            "plano_terapeutico",
+            "historico"
+          ].forEach(function(campo) {
+            expect(resposta).not.to.contain(campo);
+          });
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

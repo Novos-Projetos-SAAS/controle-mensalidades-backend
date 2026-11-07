@@ -1,0 +1,37 @@
+info:
+  name: 07 - Usuario de outra organizacao
+  type: http
+  seq: 7
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/profissionais/{{vinculo-profissional-id}}/usuario"
+  headers:
+    - name: Cookie
+      value: "{{vinculo-admin-cookie}}"
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "usuarioId": "{{vinculo-usuario-outra-org-id}}"
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("usuário de outra organização retorna 404", function() {
+          expect(res.status).to.equal(404);
+          expect(res.body.codigo).to.equal("USUARIO_NAO_ENCONTRADO");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

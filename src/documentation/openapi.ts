@@ -986,6 +986,30 @@ const openApiDocument = {
             },
         },
 
+        '/profissionais/{profissionalId}/usuario': {
+            patch: {
+                tags: ['Profissionais'],
+                summary: 'Vincular ou desvincular usuário de um profissional',
+                description:
+                    'Exige perfil ADMINISTRADOR, organização e área ativas e módulo AGENDA habilitado. Permite vincular um usuário ativo da mesma organização ou desvincular o usuário atual. Impede vínculos duplicados, troca direta de identidade e alterações quando existe histórico clínico, inclusive soft-deleted. A operação revoga as autorizações clínicas anteriores e grava auditoria na mesma transação. Vincular um usuário não concede acesso clínico automaticamente.',
+                operationId: 'alterarVinculoUsuarioProfissional',
+                security: segurancaCookie,
+                parameters: [
+                    parametroOrganizacao,
+                    parametroAreaContexto,
+                    parametroProfissionalPath,
+                ],
+                requestBody: corpoJson(referencia('AlteracaoVinculoUsuarioProfissional')),
+                responses: {
+                    '200': respostaJson(
+                        'Vínculo do usuário atualizado.',
+                        referencia('RespostaVinculoUsuarioProfissional'),
+                    ),
+                    ...erros('400', '401', '403', '404', '409'),
+                },
+            },
+        },
+
         '/agendamentos': {
             get: {
                 tags: ['Agendamentos'],
@@ -1654,6 +1678,49 @@ const openApiDocument = {
                         type: 'string',
                     },
                     data: referencia('EstadoPermissaoClinica'),
+                },
+            },
+
+            AlteracaoVinculoUsuarioProfissional: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['usuarioId'],
+                description: 'Informe o UUID para vincular um usuário ou null para desvincular.',
+                properties: {
+                    usuarioId: {
+                        type: ['string', 'null'],
+                        format: 'uuid',
+                    },
+                },
+            },
+            EstadoVinculoUsuarioProfissional: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['profissionalId', 'usuarioId'],
+                properties: {
+                    profissionalId: {
+                        type: 'string',
+                        format: 'uuid',
+                    },
+                    usuarioId: {
+                        type: ['string', 'null'],
+                        format: 'uuid',
+                    },
+                },
+            },
+            RespostaVinculoUsuarioProfissional: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['status', 'message', 'data'],
+                properties: {
+                    status: {
+                        type: 'string',
+                        const: 'success',
+                    },
+                    message: {
+                        type: 'string',
+                    },
+                    data: referencia('EstadoVinculoUsuarioProfissional'),
                 },
             },
 

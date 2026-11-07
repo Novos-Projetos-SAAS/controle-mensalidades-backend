@@ -32,3 +32,17 @@ variables:
     value: ""
   - secret: true
     name: clinico-operador-senha
+  - name: vinculo-profissional-id
+    value: ""
+  - name: vinculo-outro-profissional-id
+    value: ""
+  - name: vinculo-usuario-id
+    value: ""
+  - name: vinculo-usuario-ja-associado-id
+    value: ""
+  - name: vinculo-profissional-outra-org-id
+    value: ""
+  - name: vinculo-usuario-outra-org-id
+    value: ""
+  - name: vinculo-area-sem-agenda-id
+    value: ""

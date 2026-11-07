@@ -378,34 +378,39 @@ test('permite a própria sessão e oculta a sessão de outro profissional', asyn
 // TESTE 7 — IDENTIDADE PROFISSIONAL AMBÍGUA
 // ============================================================
 
-test('nega identidades profissionais ambíguas na mesma área', async () => {
+test('banco impede profissionais duplicados com o mesmo usuário na organização', async () => {
     await comFixture(async (tx, f) => {
         const profissionalDuplicadoId = crypto.randomUUID();
 
-        await tx('profissionais').insert({
-            id: profissionalDuplicadoId,
-            organizacao_id: f.organizacaoId,
-            usuario_id: f.usuarioId,
-            nome: 'Outro cadastro do mesmo profissional',
-            ativo: true,
-        });
-
-        await tx('profissionais_areas').insert({
-            profissional_id: profissionalDuplicadoId,
-            area_negocio_id: f.areaId,
-            ativo: true,
-            acesso_clinico_autorizado: true,
-        });
-
         await assert.rejects(
-            autorizacaoClinicaService.identificarProfissional(
-                f.usuarioId,
-                f.organizacaoId,
-                f.areaId,
-                tx,
-            ),
-            verificarErro('ACESSO_CLINICO_NEGADO', 403),
+            tx.transaction(async (subtransacao) => {
+                await subtransacao('profissionais').insert({
+                    id: profissionalDuplicadoId,
+                    organizacao_id: f.organizacaoId,
+                    usuario_id: f.usuarioId,
+                    nome: 'Cadastro profissional duplicado',
+                    ativo: true,
+                });
+            }),
+            (erro: unknown) =>
+                typeof erro === 'object' &&
+                erro !== null &&
+                'code' in erro &&
+                erro.code === '23505' &&
+                'constraint' in erro &&
+                erro.constraint === 'uq_profissionais_organizacao_usuario_nao_deletado',
         );
+
+        // A violação de unicidade foi isolada no savepoint.
+        // O profissional original continua sendo o titular autorizado.
+        const identidade = await autorizacaoClinicaService.identificarProfissional(
+            f.usuarioId,
+            f.organizacaoId,
+            f.areaId,
+            tx,
+        );
+
+        assert.equal(identidade.profissionalId, f.profissionalId);
     });
 });
 

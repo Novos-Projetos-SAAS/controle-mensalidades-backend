@@ -1,0 +1,37 @@
+info:
+  name: 06 - Profissional de outra organizacao
+  type: http
+  seq: 6
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/profissionais/{{vinculo-profissional-outra-org-id}}/usuario"
+  headers:
+    - name: Cookie
+      value: "{{vinculo-admin-cookie}}"
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "usuarioId": "{{vinculo-usuario-id}}"
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("profissional de outra organização retorna 404", function() {
+          expect(res.status).to.equal(404);
+          expect(res.body.codigo).to.equal("PROFISSIONAL_NAO_ENCONTRADO");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

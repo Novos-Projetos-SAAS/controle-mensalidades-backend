@@ -1,0 +1,37 @@
+info:
+  name: 11 - Troca direta proibida
+  type: http
+  seq: 11
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/profissionais/{{vinculo-profissional-id}}/usuario"
+  headers:
+    - name: Cookie
+      value: "{{vinculo-admin-cookie}}"
+    - name: x-organizacao-id
+      value: "{{organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{area-negocio-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "usuarioId": "{{vinculo-usuario-ja-associado-id}}"
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("troca direta de usuário retorna 409", function() {
+          expect(res.status).to.equal(409);
+          expect(res.body.codigo).to.equal("TROCA_DIRETA_USUARIO_NAO_PERMITIDA");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

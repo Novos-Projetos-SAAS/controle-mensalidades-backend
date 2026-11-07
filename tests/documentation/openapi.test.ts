@@ -47,6 +47,7 @@ const operacoesEsperadas: Record<string, string[]> = {
     '/profissionais/{profissionalId}/inativar': ['patch'],
     '/profissionais/{profissionalId}/reativar': ['patch'],
     '/profissionais/{profissionalId}/acesso-clinico': ['patch'],
+    '/profissionais/{profissionalId}/usuario': ['patch'],
     '/agendamentos': ['get', 'post'],
     '/agendamentos/{agendamentoId}': ['get', 'patch'],
     '/agendamentos/{agendamentoId}/confirmar': ['patch'],
@@ -668,5 +669,67 @@ test('OpenAPI documenta concessão e revogação clínica com segurança', () =>
 
     for (const status of ['200', '400', '401', '403', '404', '409']) {
         assert.ok(operacao.responses?.[status], `Resposta HTTP ${status} não documentada`);
+    }
+});
+
+test('OpenAPI documenta vínculo de usuário com contrato e autorização corretos', () => {
+    const caminho = '/profissionais/{profissionalId}/usuario';
+
+    const operacao = documento.paths[caminho]?.patch;
+
+    assert.ok(operacao);
+
+    assert.deepEqual(operacao.security, [{ cookieAuth: [] }]);
+
+    for (const nome of ['x-organizacao-id', 'x-area-negocio-id', 'profissionalId']) {
+        assert.equal(possuiParametro(operacao, nome), true, nome);
+    }
+
+    assert.match(String(operacao.description), /ADMINISTRADOR/);
+
+    assert.match(String(operacao.description), /AGENDA/);
+
+    const entrada = documento.components.schemas.AlteracaoVinculoUsuarioProfissional;
+
+    assert.ok(entrada, 'Schema AlteracaoVinculoUsuarioProfissional não encontrado');
+
+    assert.equal(entrada.additionalProperties, false);
+
+    assert.deepEqual(entrada.required, ['usuarioId']);
+
+    const propriedades = entrada.properties as ObjetoJson;
+
+    assert.deepEqual(Object.keys(propriedades), ['usuarioId']);
+
+    assert.deepEqual((propriedades.usuarioId as ObjetoJson).type, ['string', 'null']);
+
+    const conteudo = operacao.requestBody?.content as ObjetoJson;
+
+    const json = conteudo['application/json'] as ObjetoJson;
+
+    assert.deepEqual(json.schema, {
+        $ref: '#/components/schemas/AlteracaoVinculoUsuarioProfissional',
+    });
+
+    const resposta = documento.components.schemas.RespostaVinculoUsuarioProfissional;
+
+    assert.ok(resposta, 'Schema RespostaVinculoUsuarioProfissional não encontrado');
+
+    assert.equal(resposta.additionalProperties, false);
+
+    const propriedadesResposta = resposta.properties as ObjetoJson;
+
+    assert.deepEqual(propriedadesResposta.data, {
+        $ref: '#/components/schemas/EstadoVinculoUsuarioProfissional',
+    });
+
+    const estado = documento.components.schemas.EstadoVinculoUsuarioProfissional;
+
+    assert.ok(estado, 'Schema EstadoVinculoUsuarioProfissional não encontrado');
+
+    assert.deepEqual(estado.required, ['profissionalId', 'usuarioId']);
+
+    for (const codigo of ['200', '400', '401', '403', '404', '409']) {
+        assert.ok(operacao.responses?.[codigo], `Resposta HTTP ${codigo} ausente`);
     }
 });
