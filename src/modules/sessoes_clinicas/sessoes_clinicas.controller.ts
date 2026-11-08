@@ -2,8 +2,10 @@ import type { NextFunction, Request, Response } from 'express';
 
 import AppError from '../../shared/errors/AppError.js';
 
-import auditoriaService from '../auditoria/auditoria.service.js';
 import sessoesClinicasAcessoService from './sessoes_clinicas.acesso.service.js';
+import sessoesClinicasLeiturasTransacionaisService from './sessoes_clinicas.leituras_transacionais.service.js';
+
+import type { MetadadosAuditoriaClinica } from './sessoes_clinicas.auditoria_transacional.js';
 
 import {
     validarAtualizacaoSessaoClinica,
@@ -11,13 +13,6 @@ import {
     validarFiltrosSessoesClinicas,
     validarSessaoClinicaId,
 } from './sessoes_clinicas.validator.js';
-
-type AcaoAuditoriaSessaoClinica =
-    | 'SESSAO_CLINICA.CRIADA'
-    | 'SESSAO_CLINICA.LISTADA'
-    | 'SESSAO_CLINICA.CONSULTADA'
-    | 'SESSAO_CLINICA.CORRIGIDA'
-    | 'SESSAO_CLINICA.HISTORICO_CONSULTADO';
 
 function obterContexto(req: Request) {
     if (!req.auth) {
@@ -35,53 +30,29 @@ function obterContexto(req: Request) {
     };
 }
 
-async function registrarAuditoria(
-    req: Request,
-    acao: AcaoAuditoriaSessaoClinica,
-    sessaoClinicaId?: string,
-    dadosContexto?: Record<string, unknown>,
-) {
-    const contexto = obterContexto(req);
+function obterMetadados(req: Request): MetadadosAuditoriaClinica {
+    const userAgent = req.get('user-agent');
 
-    try {
-        const ip = req.ip;
-        const userAgent = req.get('user-agent');
-
-        await auditoriaService.registrar({
-            organizacaoId: contexto.organizacaoId,
-            usuarioId: contexto.usuarioId,
-            areaNegocioId: contexto.areaNegocioId,
-            acao,
-            recurso: 'SESSAO_CLINICA',
-            ...(sessaoClinicaId && {
-                recursoId: sessaoClinicaId,
-            }),
-            dadosContexto: {
-                areaNegocioId: contexto.areaNegocioId,
-                requestId: req.requestId,
-                ...dadosContexto,
-            },
-            ...(ip && { ip }),
-            ...(userAgent && { userAgent }),
-        });
-    } catch (auditoriaError) {
-        console.error(
-            `Falha ao registrar auditoria de sessão clínica. Request ID: ${req.requestId}`,
-            auditoriaError,
-        );
-    }
+    return {
+        requestId: req.requestId,
+        ...(req.ip && { ip: req.ip }),
+        ...(userAgent && { userAgent }),
+    };
 }
 
 class SessoesClinicasController {
     async criar(req: Request, res: Response, next: NextFunction) {
         try {
             const contexto = obterContexto(req);
-
             const dados = validarCriacaoSessaoClinica(req.body);
 
-            const sessao = await sessoesClinicasAcessoService.criar(contexto, dados);
-
-            await registrarAuditoria(req, 'SESSAO_CLINICA.CRIADA', sessao.id);
+            // A auditoria é inserida pelo Service na mesma
+            // transação que cria a sessão clínica.
+            const sessao = await sessoesClinicasAcessoService.criar(
+                contexto,
+                dados,
+                obterMetadados(req),
+            );
 
             return res.status(201).json({
                 status: 'success',
@@ -96,12 +67,13 @@ class SessoesClinicasController {
     async listar(req: Request, res: Response, next: NextFunction) {
         try {
             const contexto = obterContexto(req);
-
             const filtros = validarFiltrosSessoesClinicas(req.query);
 
-            const sessoes = await sessoesClinicasAcessoService.listar(contexto, filtros);
-
-            await registrarAuditoria(req, 'SESSAO_CLINICA.LISTADA');
+            const sessoes = await sessoesClinicasLeiturasTransacionaisService.listar(
+                contexto,
+                filtros,
+                obterMetadados(req),
+            );
 
             return res.status(200).json({
                 status: 'success',
@@ -116,15 +88,13 @@ class SessoesClinicasController {
     async buscarPorId(req: Request, res: Response, next: NextFunction) {
         try {
             const contexto = obterContexto(req);
-
             const sessaoClinicaId = validarSessaoClinicaId(req.params.sessaoClinicaId);
 
-            const sessao = await sessoesClinicasAcessoService.buscarPorId(
+            const sessao = await sessoesClinicasLeiturasTransacionaisService.buscarPorId(
                 contexto,
                 sessaoClinicaId,
+                obterMetadados(req),
             );
-
-            await registrarAuditoria(req, 'SESSAO_CLINICA.CONSULTADA', sessaoClinicaId);
 
             return res.status(200).json({
                 status: 'success',
@@ -142,15 +112,14 @@ class SessoesClinicasController {
             const sessaoClinicaId = validarSessaoClinicaId(req.params.sessaoClinicaId);
             const dados = validarAtualizacaoSessaoClinica(req.body);
 
+            // O UPDATE, o histórico e a auditoria serão
+            // confirmados ou revertidos juntos.
             const resultado = await sessoesClinicasAcessoService.corrigir(
                 contexto,
                 sessaoClinicaId,
                 dados,
+                obterMetadados(req),
             );
-
-            await registrarAuditoria(req, 'SESSAO_CLINICA.CORRIGIDA', sessaoClinicaId, {
-                camposAlterados: resultado.camposAlterados,
-            });
 
             return res.status(200).json({
                 status: 'success',
@@ -167,12 +136,12 @@ class SessoesClinicasController {
             const contexto = obterContexto(req);
             const sessaoClinicaId = validarSessaoClinicaId(req.params.sessaoClinicaId);
 
-            const historico = await sessoesClinicasAcessoService.listarHistoricoCorrecoes(
-                contexto,
-                sessaoClinicaId,
-            );
-
-            await registrarAuditoria(req, 'SESSAO_CLINICA.HISTORICO_CONSULTADO', sessaoClinicaId);
+            const historico =
+                await sessoesClinicasLeiturasTransacionaisService.listarHistoricoCorrecoes(
+                    contexto,
+                    sessaoClinicaId,
+                    obterMetadados(req),
+                );
 
             return res.status(200).json({
                 status: 'success',

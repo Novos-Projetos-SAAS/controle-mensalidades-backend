@@ -10,11 +10,13 @@ import requestId from '../../../src/middlewares/requestId.middleware.js';
 import auditoriaService from '../../../src/modules/auditoria/auditoria.service.js';
 import sessoesClinicasAcessoService from '../../../src/modules/sessoes_clinicas/sessoes_clinicas.acesso.service.js';
 import sessoesClinicasController from '../../../src/modules/sessoes_clinicas/sessoes_clinicas.controller.js';
+import sessoesClinicasLeiturasTransacionaisService from '../../../src/modules/sessoes_clinicas/sessoes_clinicas.leituras_transacionais.service.js';
 import AppError from '../../../src/shared/errors/AppError.js';
 
-// Este arquivo testa o CONTRATO HTTP do Controller com mocks do Service.
-// NÃO substitui os testes reais de transação e PostgreSQL do Service.
-// Não abre conexão nem grava informações clínicas no banco.
+// Testa o contrato HTTP do Controller com mocks do Service.
+// A auditoria de escrita ocorre dentro da transacao PostgreSQL do Service.
+// Sua persistencia e rollback sao verificados nos testes transacionais.
+// Este arquivo nao abre conexao nem grava informacoes clinicas no banco.
 
 const usuarioId = crypto.randomUUID();
 const organizacaoId = crypto.randomUUID();
@@ -24,6 +26,12 @@ const pacienteId = crypto.randomUUID();
 const sessaoId = crypto.randomUUID();
 const textoAnterior = 'Evolucao inicial sigilosa de teste.';
 const textoNovo = 'Evolucao corrigida sigilosa de teste.';
+
+const contexto = {
+    usuarioId,
+    organizacaoId,
+    areaNegocioId: areaId,
+};
 
 const sessaoFicticia = {
     id: sessaoId,
@@ -47,8 +55,7 @@ function criarAppTeste(incluirArea = true) {
     app.use(requestId);
     app.use(express.json());
 
-    // Contexto fictício apenas para exercitar o Controller.
-    // Os middlewares reais de autenticação são cobertos em outros testes HTTP.
+    // Contexto ficticio: JWT e headers reais sao cobertos em outros testes.
     app.use((req, _res, next) => {
         req.auth = {
             usuarioId,
@@ -69,7 +76,7 @@ function criarAppTeste(incluirArea = true) {
     return app;
 }
 
-test('PATCH autorizado devolve 200 e a sessão corrigida', async (t) => {
+test('PATCH autorizado devolve 200 e a sessao corrigida', async (t) => {
     const corrigir = t.mock.method(sessoesClinicasAcessoService, 'corrigir', async () => ({
         sessao: sessaoFicticia,
         camposAlterados: ['evolucao'],
@@ -84,29 +91,45 @@ test('PATCH autorizado devolve 200 e a sessão corrigida', async (t) => {
     assert.equal(resposta.body.data.id, sessaoId);
     assert.equal(resposta.body.data.evolucao, textoNovo);
     assert.equal(corrigir.mock.callCount(), 1);
-    assert.equal(auditar.mock.callCount(), 1);
+
+    const argumentos = corrigir.mock.calls[0]?.arguments;
+    assert.ok(argumentos);
+    assert.deepEqual(argumentos[0], contexto);
+    assert.equal(argumentos[1], sessaoId);
+    assert.deepEqual(argumentos[2], { evolucao: textoNovo });
+
+    // A escrita e a auditoria sao feitas juntas no Service transacional.
+    // O Controller nao deve registrar uma segunda auditoria.
+    assert.equal(auditar.mock.callCount(), 0);
 });
 
-test('auditoria de PATCH contém nomes dos campos, mas não o conteúdo clínico', async (t) => {
-    t.mock.method(sessoesClinicasAcessoService, 'corrigir', async () => ({
+test('PATCH encaminha metadados de auditoria sem incluir conteudo clinico neles', async (t) => {
+    const corrigir = t.mock.method(sessoesClinicasAcessoService, 'corrigir', async () => ({
         sessao: sessaoFicticia,
         camposAlterados: ['evolucao'],
     }));
     const auditar = t.mock.method(auditoriaService, 'registrar', async () => undefined);
 
-    await request(criarAppTeste())
+    const resposta = await request(criarAppTeste())
         .patch(`/sessoes-clinicas/${sessaoId}`)
         .send({ evolucao: textoNovo })
         .expect(200);
 
-    const dadosAuditoria = auditar.mock.calls[0]?.arguments[0];
-    assert.equal(dadosAuditoria?.acao, 'SESSAO_CLINICA.CORRIGIDA');
-    assert.deepEqual(dadosAuditoria?.dadosContexto?.camposAlterados, ['evolucao']);
-    assert.equal(JSON.stringify(dadosAuditoria).includes(textoNovo), false);
-    assert.equal(JSON.stringify(dadosAuditoria).includes(textoAnterior), false);
+    const metadados = corrigir.mock.calls[0]?.arguments[3];
+    assert.ok(metadados, 'Metadados nao foram encaminhados ao Service.');
+    assert.equal(metadados.requestId, resposta.headers['x-request-id']);
+    assert.match(metadados.requestId ?? '', /^[0-9a-f-]{36}$/i);
+    assert.ok(metadados.ip, 'IP deve constar nos metadados.');
+
+    // O texto clinico fica no argumento dos dados de correcao,
+    // nunca nos metadados usados para compor a auditoria.
+    const jsonMetadados = JSON.stringify(metadados);
+    assert.equal(jsonMetadados.includes(textoNovo), false);
+    assert.equal(jsonMetadados.includes(textoAnterior), false);
+    assert.equal(auditar.mock.callCount(), 0);
 });
 
-test('PATCH inválido devolve 400 e não chama o Service', async (t) => {
+test('PATCH invalido devolve 400 e nao chama o Service', async (t) => {
     const corrigir = t.mock.method(sessoesClinicasAcessoService, 'corrigir', async () => ({
         sessao: sessaoFicticia,
         camposAlterados: ['evolucao'],
@@ -123,7 +146,7 @@ test('PATCH inválido devolve 400 e não chama o Service', async (t) => {
 
 test('PATCH rejeitado pelo Service preserva 404 no HTTP', async (t) => {
     t.mock.method(sessoesClinicasAcessoService, 'corrigir', async () => {
-        throw new AppError('Sessão não encontrada.', 404, 'SESSAO_CLINICA_NAO_ENCONTRADA');
+        throw new AppError('Sessao nao encontrada.', 404, 'SESSAO_CLINICA_NAO_ENCONTRADA');
     });
     const auditar = t.mock.method(auditoriaService, 'registrar', async () => undefined);
 
@@ -136,7 +159,7 @@ test('PATCH rejeitado pelo Service preserva 404 no HTTP', async (t) => {
     assert.equal(auditar.mock.callCount(), 0);
 });
 
-test('GET de histórico devolve as versões e não audita o conteúdo clínico', async (t) => {
+test('GET de historico devolve as versoes e nao audita o conteudo clinico', async (t) => {
     const versoes = [
         {
             id: crypto.randomUUID(),
@@ -148,7 +171,11 @@ test('GET de histórico devolve as versões e não audita o conteúdo clínico',
             criado_em: new Date('2026-10-02T14:00:00Z'),
         },
     ];
-    t.mock.method(sessoesClinicasAcessoService, 'listarHistoricoCorrecoes', async () => versoes);
+    const listarHistorico = t.mock.method(
+        sessoesClinicasLeiturasTransacionaisService,
+        'listarHistoricoCorrecoes',
+        async () => versoes,
+    );
     const auditar = t.mock.method(auditoriaService, 'registrar', async () => undefined);
 
     const resposta = await request(criarAppTeste())
@@ -159,16 +186,23 @@ test('GET de histórico devolve as versões e não audita o conteúdo clínico',
     assert.equal(resposta.body.data[0].dados_anteriores.evolucao, textoAnterior);
     assert.equal(resposta.body.data[0].dados_novos.evolucao, textoNovo);
 
-    const dadosAuditoria = auditar.mock.calls[0]?.arguments[0];
-    assert.equal(dadosAuditoria?.acao, 'SESSAO_CLINICA.HISTORICO_CONSULTADO');
-    assert.equal(JSON.stringify(dadosAuditoria).includes(textoNovo), false);
-    assert.equal(JSON.stringify(dadosAuditoria).includes(textoAnterior), false);
+    const metadados = listarHistorico.mock.calls[0]?.arguments[2];
+    assert.ok(metadados);
+    assert.equal(metadados.requestId, resposta.headers['x-request-id']);
+    assert.ok(metadados.ip);
+    assert.equal(JSON.stringify(metadados).includes(textoNovo), false);
+    assert.equal(JSON.stringify(metadados).includes(textoAnterior), false);
+    assert.equal(auditar.mock.callCount(), 0);
 });
 
-test('GET de histórico negado não grava auditoria de sucesso', async (t) => {
-    t.mock.method(sessoesClinicasAcessoService, 'listarHistoricoCorrecoes', async () => {
-        throw new AppError('Acesso clínico negado.', 403, 'ACESSO_CLINICO_NEGADO');
-    });
+test('GET de historico negado nao grava auditoria de sucesso', async (t) => {
+    t.mock.method(
+        sessoesClinicasLeiturasTransacionaisService,
+        'listarHistoricoCorrecoes',
+        async () => {
+            throw new AppError('Acesso clinico negado.', 403, 'ACESSO_CLINICO_NEGADO');
+        },
+    );
     const auditar = t.mock.method(auditoriaService, 'registrar', async () => undefined);
 
     const resposta = await request(criarAppTeste())
@@ -179,9 +213,9 @@ test('GET de histórico negado não grava auditoria de sucesso', async (t) => {
     assert.equal(auditar.mock.callCount(), 0);
 });
 
-test('Controller recusa requisição sem área de negócio', async (t) => {
+test('Controller recusa requisicao sem area de negocio', async (t) => {
     const buscar = t.mock.method(
-        sessoesClinicasAcessoService,
+        sessoesClinicasLeiturasTransacionaisService,
         'listarHistoricoCorrecoes',
         async () => [],
     );

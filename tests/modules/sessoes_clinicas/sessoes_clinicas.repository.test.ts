@@ -352,3 +352,19 @@ test('histórico clínico não pode ser excluído', async () => {
         );
     });
 });
+
+test('histórico clínico não pode ser esvaziado por TRUNCATE', async () => {
+    await assert.rejects(
+        connection.transaction(async (transaction) => {
+            // Caso o trigger esteja ausente, a exceção intencional aborta a
+            // transação e reverte o TRUNCATE antes que qualquer dado persista.
+            await transaction.raw('TRUNCATE TABLE historico_correcoes_sessoes_clinicas');
+            throw new Error('TRUNCATE_PROTEGIDO_AUSENTE');
+        }),
+        (error: unknown) =>
+            typeof error === 'object' &&
+            error !== null &&
+            'code' in error &&
+            error.code === 'P0001',
+    );
+});

@@ -12,6 +12,9 @@ import sessoesClinicasRepository from '../../../src/modules/sessoes_clinicas/ses
 
 import sessoesClinicasService from '../../../src/modules/sessoes_clinicas/sessoes_clinicas.service.js';
 
+import auditoriaClinicaTransacional from '../../../src/modules/sessoes_clinicas/sessoes_clinicas.auditoria_transacional.js';
+import AppError from '../../../src/shared/errors/AppError.js';
+
 const DATA_SESSAO = '2026-10-01T14:00:00Z';
 
 type Fixture = {
@@ -704,5 +707,73 @@ test('revogação clínica impede novas correções', async () => {
             sessao.id,
         );
         assert.equal(historicos.length, 0);
+    });
+});
+
+test('criação clínica grava auditoria na mesma transação sem dados sensíveis', async () => {
+    await comFixture(async (tx, fixture) => {
+        await habilitarAutorizacaoClinica(tx, fixture);
+
+        const requestId = crypto.randomUUID();
+
+        const sessao = await sessoesClinicasService.criar(
+            fixture.organizacaoId,
+            fixture.areaId,
+            dadosValidos(fixture),
+            fixture.usuarioId,
+            { requestId },
+        );
+
+        const registros = await tx('registros_auditoria').where({
+            organizacao_id: fixture.organizacaoId,
+            recurso: 'SESSAO_CLINICA',
+            recurso_id: sessao.id,
+            acao: 'SESSAO_CLINICA.CRIADA',
+        });
+
+        assert.equal(registros.length, 1);
+        assert.equal(registros[0]?.usuario_id, fixture.usuarioId);
+
+        const contexto = registros[0]?.dados_contexto;
+
+        assert.equal(contexto.requestId, requestId);
+        assert.equal(contexto.areaNegocioId, fixture.areaId);
+
+        const json = JSON.stringify(contexto);
+
+        for (const campo of [
+            'evolucao',
+            'diagnostico_fisioterapeutico',
+            'prognostico',
+            'plano_terapeutico',
+        ]) {
+            assert.equal(json.includes(campo), false);
+        }
+    });
+});
+
+test('falha na auditoria desfaz criação de sessão clínica', async (t) => {
+    await comFixture(async (tx, fixture) => {
+        const auditoria = t.mock.method(auditoriaClinicaTransacional, 'registrar', async () => {
+            throw new AppError('Auditoria indisponível.', 503, 'AUDITORIA_CLINICA_INDISPONIVEL');
+        });
+
+        await assert.rejects(
+            sessoesClinicasService.criar(
+                fixture.organizacaoId,
+                fixture.areaId,
+                dadosValidos(fixture),
+            ),
+            verificarErro('AUDITORIA_CLINICA_INDISPONIVEL', 503),
+        );
+
+        assert.equal(auditoria.mock.callCount(), 1);
+
+        const sessoes = await tx('sessoes_clinicas').where({
+            organizacao_id: fixture.organizacaoId,
+            profissional_id: fixture.profissionalId,
+        });
+
+        assert.equal(sessoes.length, 0);
     });
 });

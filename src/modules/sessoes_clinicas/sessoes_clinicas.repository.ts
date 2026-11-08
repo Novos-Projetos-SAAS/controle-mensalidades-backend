@@ -1,4 +1,6 @@
 import type { Knex } from 'knex';
+
+import { aplicarTimeoutsTransacaoClinica } from '../../database/clinical-transaction-timeouts.js';
 import connection from '../../database/connection.js';
 
 type ExecutorBanco = Knex | Knex.Transaction;
@@ -160,7 +162,10 @@ class SessoesClinicasRepository {
     async executarEmTransacao<T>(
         operacao: (transaction: Knex.Transaction) => Promise<T>,
     ): Promise<T> {
-        return connection.transaction(operacao);
+        return connection.transaction(async (transaction) => {
+            await aplicarTimeoutsTransacaoClinica(transaction);
+            return operacao(transaction);
+        });
     }
 
     // Verifica se o cliente pertence à organização e está ativo na área.

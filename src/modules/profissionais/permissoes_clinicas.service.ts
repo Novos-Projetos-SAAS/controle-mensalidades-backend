@@ -1,3 +1,4 @@
+import { aplicarTimeoutsTransacaoClinica } from '../../database/clinical-transaction-timeouts.js';
 import connection from '../../database/connection.js';
 import AppError from '../../shared/errors/AppError.js';
 
@@ -15,6 +16,7 @@ type AlteracaoPermissaoClinica = {
 class PermissoesClinicasService {
     async alterar(dados: AlteracaoPermissaoClinica) {
         return connection.transaction(async (tx) => {
+            await aplicarTimeoutsTransacaoClinica(tx);
             // Revalida a autoridade administrativa dentro da transação.
             const administrador = await tx('usuarios_organizacoes as uo')
                 .innerJoin('usuarios as u', 'u.id', 'uo.usuario_id')

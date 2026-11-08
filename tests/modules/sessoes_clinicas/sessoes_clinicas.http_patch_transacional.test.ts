@@ -1,26 +1,24 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test, { after, type TestContext } from 'node:test';
-
 import express from 'express';
 import type { Knex } from 'knex';
 import request from 'supertest';
-
 import { env } from '../../../src/configuration/env.js';
 import connection from '../../../src/database/connection.js';
 import errorHandler from '../../../src/middlewares/errorHandler.middleware.js';
 import requestId from '../../../src/middlewares/requestId.middleware.js';
-import auditoriaService from '../../../src/modules/auditoria/auditoria.service.js';
+import auditoriaClinicaTransacional from '../../../src/modules/sessoes_clinicas/sessoes_clinicas.auditoria_transacional.js';
 import autorizacaoClinicaService from '../../../src/modules/sessoes_clinicas/autorizacao_clinica.service.js';
 import sessoesClinicasController from '../../../src/modules/sessoes_clinicas/sessoes_clinicas.controller.js';
 import sessoesClinicasRepository from '../../../src/modules/sessoes_clinicas/sessoes_clinicas.repository.js';
 import AppError from '../../../src/shared/errors/AppError.js';
 
 // Integração HTTP -> Controller -> Service -> SQL real.
-// O pré-check de titularidade e a auditoria são mocks, pois os dados fictícios
-// ainda não estão confirmados. A autorização transacional, o UPDATE e o INSERT
-// do histórico são reais, executados em savepoints da transação externa.
-// O ROLLBACK externo apaga todas as correções, inclusive as imutáveis.
+// Somente o pré-check de titularidade é simulado. A autorização dentro da
+// transação, a correção, o histórico e a auditoria usam o PostgreSQL real.
+// As escritas são executadas em savepoints da transação de fixture.
+// O rollback externo elimina todos os dados fictícios.
 
 type Fixture = {
     organizacaoId: string;
@@ -35,7 +33,9 @@ type Fixture = {
 };
 
 const TEXTO_ORIGINAL = 'Texto original ficticio protegido.';
+
 const TEXTO_CORRIGIDO = 'Texto corrigido ficticio protegido.';
+
 const TEXTO_FINAL = 'Texto final ficticio protegido.';
 
 function novosIds(): Fixture {
@@ -144,7 +144,6 @@ function criarAppTeste(f: Fixture) {
     const app = express();
     app.use(requestId);
     app.use(express.json());
-
     // Contexto HTTP simulado. Os testes anteriores cobrem JWT e headers reais.
     app.use((req, _res, next) => {
         req.auth = {
@@ -155,7 +154,6 @@ function criarAppTeste(f: Fixture) {
         };
         next();
     });
-
     app.patch('/sessoes-clinicas/:sessaoClinicaId', sessoesClinicasController.corrigir);
     app.use(errorHandler);
     return app;
@@ -182,7 +180,6 @@ async function comRollback(executar: (tx: Knex.Transaction, f: Fixture) => Promi
     try {
         await connection.transaction(async (tx) => {
             await prepararDados(tx, f);
-
             const executarOriginal = sessoesClinicasRepository.executarEmTransacao;
             sessoesClinicasRepository.executarEmTransacao = async <T>(
                 operacao: (trx: Knex.Transaction) => Promise<T>,
@@ -192,7 +189,6 @@ async function comRollback(executar: (tx: Knex.Transaction, f: Fixture) => Promi
             } finally {
                 sessoesClinicasRepository.executarEmTransacao = executarOriginal;
             }
-
             throw rollbackIntencional;
         });
     } catch (error) {
@@ -206,7 +202,6 @@ function prepararMocks(t: TestContext, f: Fixture) {
     t.mock.method(autorizacaoClinicaService, 'exigirTitularidadeSessao', async () => ({
         profissionalId: f.profissionalId,
     }));
-    return t.mock.method(auditoriaService, 'registrar', async () => undefined);
 }
 
 after(async () => {
@@ -215,27 +210,35 @@ after(async () => {
 
 test('PATCH legítimo grava correção e o texto anterior na mesma transação', async (t) => {
     await comRollback(async (tx, f) => {
-        const auditoria = prepararMocks(t, f);
+        prepararMocks(t, f);
         const resposta = await request(criarAppTeste(f))
             .patch(`/sessoes-clinicas/${f.sessaoId}`)
             .send({ evolucao: TEXTO_CORRIGIDO })
             .expect(200);
-
         assert.equal(resposta.body.data.evolucao, TEXTO_CORRIGIDO);
         assert.equal(await textoAtual(tx, f.sessaoId), TEXTO_CORRIGIDO);
-
         const versoes = await historicos(tx, f.sessaoId);
         assert.equal(versoes.length, 1);
         assert.deepEqual(versoes[0].campos_alterados, ['evolucao']);
         assert.equal(versoes[0].dados_anteriores.evolucao, TEXTO_ORIGINAL);
         assert.equal(versoes[0].dados_novos.evolucao, TEXTO_CORRIGIDO);
         assert.equal(versoes[0].corrigido_por_usuario_id, f.usuarioId);
-
-        assert.equal(auditoria.mock.callCount(), 1);
-        const dadosAuditoria = auditoria.mock.calls[0]?.arguments[0];
-        assert.equal(dadosAuditoria?.acao, 'SESSAO_CLINICA.CORRIGIDA');
-        assert.equal(JSON.stringify(dadosAuditoria).includes(TEXTO_CORRIGIDO), false);
-        assert.equal(JSON.stringify(dadosAuditoria).includes(TEXTO_ORIGINAL), false);
+        // Verifica o registro realmente persistido na MESMA transação.
+        const registros = await tx('registros_auditoria')
+            .select('acao', 'usuario_id', 'area_negocio_id', 'dados_contexto')
+            .where({
+                organizacao_id: f.organizacaoId,
+                recurso: 'SESSAO_CLINICA',
+                recurso_id: f.sessaoId,
+            });
+        assert.equal(registros.length, 1);
+        assert.equal(registros[0]?.acao, 'SESSAO_CLINICA.CORRIGIDA');
+        assert.equal(registros[0]?.usuario_id, f.usuarioId);
+        assert.equal(registros[0]?.area_negocio_id, f.areaId);
+        assert.deepEqual(registros[0]?.dados_contexto?.camposAlterados, ['evolucao']);
+        const contextoAuditoria = JSON.stringify(registros[0]?.dados_contexto);
+        assert.equal(contextoAuditoria.includes(TEXTO_CORRIGIDO), false);
+        assert.equal(contextoAuditoria.includes(TEXTO_ORIGINAL), false);
     });
 });
 
@@ -243,7 +246,6 @@ test('dois PATCHs legítimos preservam as versões intermediárias', async (t) =
     await comRollback(async (tx, f) => {
         prepararMocks(t, f);
         const app = criarAppTeste(f);
-
         await request(app)
             .patch(`/sessoes-clinicas/${f.sessaoId}`)
             .send({ evolucao: TEXTO_CORRIGIDO })
@@ -252,17 +254,22 @@ test('dois PATCHs legítimos preservam as versões intermediárias', async (t) =
             .patch(`/sessoes-clinicas/${f.sessaoId}`)
             .send({ evolucao: TEXTO_FINAL })
             .expect(200);
-
         assert.equal(await textoAtual(tx, f.sessaoId), TEXTO_FINAL);
         const versoes = await historicos(tx, f.sessaoId);
         assert.equal(versoes.length, 2);
-
         const primeira = versoes.find((h) => h.dados_novos.evolucao === TEXTO_CORRIGIDO);
         const segunda = versoes.find((h) => h.dados_novos.evolucao === TEXTO_FINAL);
         assert.ok(primeira);
         assert.ok(segunda);
         assert.equal(primeira.dados_anteriores.evolucao, TEXTO_ORIGINAL);
         assert.equal(segunda.dados_anteriores.evolucao, TEXTO_CORRIGIDO);
+        const auditorias = await tx('registros_auditoria').where({
+            organizacao_id: f.organizacaoId,
+            recurso: 'SESSAO_CLINICA',
+            recurso_id: f.sessaoId,
+            acao: 'SESSAO_CLINICA.CORRIGIDA',
+        });
+        assert.equal(auditorias.length, 2);
     });
 });
 
@@ -273,7 +280,6 @@ test('PATCH sem mudança retorna 400 e não gera histórico', async (t) => {
             .patch(`/sessoes-clinicas/${f.sessaoId}`)
             .send({ evolucao: TEXTO_ORIGINAL })
             .expect(400);
-
         assert.equal(resposta.body.codigo, 'SESSAO_CLINICA_SEM_ALTERACOES');
         assert.equal(await textoAtual(tx, f.sessaoId), TEXTO_ORIGINAL);
         assert.equal((await historicos(tx, f.sessaoId)).length, 0);
@@ -282,20 +288,24 @@ test('PATCH sem mudança retorna 400 e não gera histórico', async (t) => {
 
 test('falha ao gravar histórico desfaz a correção do prontuário', async (t) => {
     await comRollback(async (tx, f) => {
-        const auditoria = prepararMocks(t, f);
+        prepararMocks(t, f);
         t.mock.method(sessoesClinicasRepository, 'registrarHistoricoCorrecao', async () => {
             throw new AppError('Falha de histórico simulada.', 503, 'HISTORICO_INDISPONIVEL');
         });
-
         const resposta = await request(criarAppTeste(f))
             .patch(`/sessoes-clinicas/${f.sessaoId}`)
             .send({ evolucao: TEXTO_CORRIGIDO })
             .expect(503);
-
         assert.equal(resposta.body.codigo, 'HISTORICO_INDISPONIVEL');
         assert.equal(await textoAtual(tx, f.sessaoId), TEXTO_ORIGINAL);
         assert.equal((await historicos(tx, f.sessaoId)).length, 0);
-        assert.equal(auditoria.mock.callCount(), 0);
+        const auditorias = await tx('registros_auditoria').where({
+            organizacao_id: f.organizacaoId,
+            recurso: 'SESSAO_CLINICA',
+            recurso_id: f.sessaoId,
+            acao: 'SESSAO_CLINICA.CORRIGIDA',
+        });
+        assert.equal(auditorias.length, 0);
     });
 });
 
@@ -305,12 +315,10 @@ test('revogação clínica dentro da transação impede PATCH e histórico', asy
         await tx('profissionais_areas')
             .where({ profissional_id: f.profissionalId, area_negocio_id: f.areaId })
             .update({ acesso_clinico_autorizado: false });
-
         const resposta = await request(criarAppTeste(f))
             .patch(`/sessoes-clinicas/${f.sessaoId}`)
             .send({ evolucao: TEXTO_CORRIGIDO })
             .expect(403);
-
         assert.equal(resposta.body.codigo, 'ACESSO_CLINICO_NEGADO');
         assert.equal(await textoAtual(tx, f.sessaoId), TEXTO_ORIGINAL);
         assert.equal((await historicos(tx, f.sessaoId)).length, 0);
@@ -324,9 +332,39 @@ test('SQL transacional impede PATCH em sessão de outro profissional', async (t)
             .patch(`/sessoes-clinicas/${f.sessaoOutroId}`)
             .send({ evolucao: TEXTO_CORRIGIDO })
             .expect(404);
-
         assert.equal(resposta.body.codigo, 'SESSAO_CLINICA_NAO_ENCONTRADA');
         assert.equal(await textoAtual(tx, f.sessaoOutroId), 'Registro de outro profissional.');
         assert.equal((await historicos(tx, f.sessaoOutroId)).length, 0);
+    });
+});
+
+// ============================================================
+// FALHA DA AUDITORIA REVERTE PATCH, HISTÓRICO E AUDITORIA
+// ============================================================
+
+test('falha na auditoria desfaz PATCH e histórico clínico', async (t) => {
+    await comRollback(async (tx, f) => {
+        prepararMocks(t, f);
+        const auditoria = t.mock.method(auditoriaClinicaTransacional, 'registrar', async () => {
+            throw new AppError('Auditoria indisponível.', 503, 'AUDITORIA_CLINICA_INDISPONIVEL');
+        });
+        const resposta = await request(criarAppTeste(f))
+            .patch(`/sessoes-clinicas/${f.sessaoId}`)
+            .send({ evolucao: TEXTO_CORRIGIDO })
+            .expect(503);
+        assert.equal(resposta.body.codigo, 'AUDITORIA_CLINICA_INDISPONIVEL');
+        assert.equal(auditoria.mock.callCount(), 1);
+        // O prontuário conserva o texto original.
+        assert.equal(await textoAtual(tx, f.sessaoId), TEXTO_ORIGINAL);
+        // A gravação do histórico também deve sofrer rollback.
+        assert.equal((await historicos(tx, f.sessaoId)).length, 0);
+        // Nenhuma auditoria parcial pode permanecer.
+        const registros = await tx('registros_auditoria').where({
+            organizacao_id: f.organizacaoId,
+            recurso: 'SESSAO_CLINICA',
+            recurso_id: f.sessaoId,
+            acao: 'SESSAO_CLINICA.CORRIGIDA',
+        });
+        assert.equal(registros.length, 0);
     });
 });

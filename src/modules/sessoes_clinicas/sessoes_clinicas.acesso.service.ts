@@ -1,7 +1,10 @@
 import AppError from '../../shared/errors/AppError.js';
 
 import autorizacaoClinicaService from './autorizacao_clinica.service.js';
+import sessoesClinicasLeiturasTransacionaisService from './sessoes_clinicas.leituras_transacionais.service.js';
 import sessoesClinicasService from './sessoes_clinicas.service.js';
+
+import type { MetadadosAuditoriaClinica } from './sessoes_clinicas.auditoria_transacional.js';
 
 import type {
     AtualizarSessaoClinicaInput,
@@ -16,8 +19,11 @@ type ContextoClinico = {
 };
 
 class SessoesClinicasAcessoService {
-    // CRIAR SESSÃO CLÍNICA
-    async criar(contexto: ContextoClinico, dados: CriarSessaoClinicaInput) {
+    async criar(
+        contexto: ContextoClinico,
+        dados: CriarSessaoClinicaInput,
+        metadados?: MetadadosAuditoriaClinica,
+    ) {
         const identidade = await autorizacaoClinicaService.identificarProfissional(
             contexto.usuarioId,
             contexto.organizacaoId,
@@ -37,63 +43,49 @@ class SessoesClinicasAcessoService {
             contexto.areaNegocioId,
             dados,
             contexto.usuarioId,
+            metadados,
         );
     }
 
-    // LISTAR SESSÕES CLÍNICAS
-    async listar(contexto: ContextoClinico, filtros: FiltrosSessoesClinicasInput) {
-        const identidade = await autorizacaoClinicaService.identificarProfissional(
-            contexto.usuarioId,
-            contexto.organizacaoId,
-            contexto.areaNegocioId,
-        );
-
-        return sessoesClinicasService.listarAutorizadas(
-            contexto.organizacaoId,
-            contexto.areaNegocioId,
-            contexto.usuarioId,
-            {
-                ...filtros,
-                profissionalId: identidade.profissionalId,
-            },
-        );
+    async listar(
+        contexto: ContextoClinico,
+        filtros: FiltrosSessoesClinicasInput,
+        metadados?: MetadadosAuditoriaClinica,
+    ) {
+        return sessoesClinicasLeiturasTransacionaisService.listar(contexto, filtros, metadados);
     }
 
-    // CONSULTAR SESSÃO CLÍNICA
-    async buscarPorId(contexto: ContextoClinico, sessaoClinicaId: string) {
-        await autorizacaoClinicaService.exigirTitularidadeSessao(
-            contexto.usuarioId,
-            contexto.organizacaoId,
-            contexto.areaNegocioId,
+    async buscarPorId(
+        contexto: ContextoClinico,
+        sessaoClinicaId: string,
+        metadados?: MetadadosAuditoriaClinica,
+    ) {
+        return sessoesClinicasLeiturasTransacionaisService.buscarPorId(
+            contexto,
             sessaoClinicaId,
-        );
-
-        return sessoesClinicasService.buscarPorIdAutorizada(
-            contexto.organizacaoId,
-            contexto.areaNegocioId,
-            contexto.usuarioId,
-            sessaoClinicaId,
+            metadados,
         );
     }
 
-    // CONSULTAR HISTÓRICO DE CORREÇÕES
-    async listarHistoricoCorrecoes(contexto: ContextoClinico, sessaoClinicaId: string) {
-        return sessoesClinicasService.listarHistoricoCorrecoes(
-            contexto.organizacaoId,
-            contexto.areaNegocioId,
-            contexto.usuarioId,
+    async listarHistoricoCorrecoes(
+        contexto: ContextoClinico,
+        sessaoClinicaId: string,
+        metadados?: MetadadosAuditoriaClinica,
+    ) {
+        return sessoesClinicasLeiturasTransacionaisService.listarHistoricoCorrecoes(
+            contexto,
             sessaoClinicaId,
+            metadados,
         );
     }
 
-    // CORRIGIR SESSÃO CLÍNICA
     async corrigir(
         contexto: ContextoClinico,
         sessaoClinicaId: string,
         dados: AtualizarSessaoClinicaInput,
+        metadados?: MetadadosAuditoriaClinica,
     ) {
-        // Primeira barreira:
-        // verifica autorização e titularidade.
+        // Primeira validação: autorização e titularidade.
         await autorizacaoClinicaService.exigirTitularidadeSessao(
             contexto.usuarioId,
             contexto.organizacaoId,
@@ -101,15 +93,15 @@ class SessoesClinicasAcessoService {
             sessaoClinicaId,
         );
 
-        // Segunda barreira:
-        // o Service verifica novamente a autorização
-        // e a titularidade dentro da transação.
+        // O Service confirma novamente a autorização
+        // dentro da transação de escrita.
         return sessoesClinicasService.corrigir(
             contexto.organizacaoId,
             contexto.areaNegocioId,
             contexto.usuarioId,
             sessaoClinicaId,
             dados,
+            metadados,
         );
     }
 }

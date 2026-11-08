@@ -2,9 +2,13 @@ import dotenv from 'dotenv';
 
 import type { Knex } from 'knex';
 
-type Environment = 'development' | 'test' | 'production';
+import { env } from './src/configuration/env.js';
+import {
+    criarConfiguracaoBanco,
+    type DatabaseEnvironment,
+} from './src/database/database.config.js';
 
-const environment = (process.env.NODE_ENV || 'development') as Environment;
+const environment = env.NODE_ENV as DatabaseEnvironment;
 
 dotenv.config({
     path: environment === 'test' ? '.env.test' : '.env',
@@ -32,6 +36,17 @@ if (environment === 'test') {
     }
 }
 
+const databaseUrl =
+    environment === 'test'
+        ? process.env.DATABASE_URL_TEST
+        : environment === 'production'
+          ? process.env.DATABASE_URL_MIGRATIONS
+          : process.env.DATABASE_URL_MIGRATIONS || process.env.DATABASE_URL;
+
+if (environment === 'production' && !databaseUrl) {
+    throw new Error('DATABASE_URL_MIGRATIONS é obrigatória para executar migrations em produção.');
+}
+
 function obterVariavelObrigatoria(nome: string): string {
     const valor = process.env[nome];
 
@@ -42,73 +57,56 @@ function obterVariavelObrigatoria(nome: string): string {
     return valor;
 }
 
-function criarConfiguracaoConexao(): NonNullable<Knex.Config['connection']> {
-    const databaseUrl =
-        environment === 'test' ? process.env.DATABASE_URL_TEST : process.env.DATABASE_URL;
+function obterPortaBanco(): number {
+    const porta = Number(process.env.DB_PORT || 5432);
 
-    if (databaseUrl) {
-        return {
-            connectionString: databaseUrl,
-
-            ...(process.env.DB_SSL === 'true' && {
-                ssl: {
-                    rejectUnauthorized: false,
-                },
-            }),
-        };
+    if (!Number.isInteger(porta) || porta < 1 || porta > 65535) {
+        throw new Error('DB_PORT inválida; informe uma porta entre 1 e 65535.');
     }
 
-    return {
-        host: obterVariavelObrigatoria('DB_HOST'),
-        port: Number(process.env.DB_PORT || 5432),
-        user: obterVariavelObrigatoria('DB_USER'),
-        password: obterVariavelObrigatoria('DB_PASSWORD'),
-        database: obterVariavelObrigatoria('DB_NAME'),
-
-        ...(process.env.DB_SSL === 'true' && {
-            ssl: {
-                rejectUnauthorized: false,
-            },
-        }),
-    };
+    return porta;
 }
 
-const connection = criarConfiguracaoConexao();
+const databaseConfig = databaseUrl
+    ? criarConfiguracaoBanco(environment, databaseUrl)
+    : ({
+          client: 'pg' as const,
+          connection: {
+              host: obterVariavelObrigatoria('DB_HOST'),
+              port: obterPortaBanco(),
+              user: obterVariavelObrigatoria('DB_USER'),
+              password: obterVariavelObrigatoria('DB_PASSWORD'),
+              database: obterVariavelObrigatoria('DB_NAME'),
+              ...((env.DB_SSL === 'true' || environment === 'production') && {
+                  ssl: {
+                      rejectUnauthorized: true,
+                  },
+              }),
+          },
+          acquireConnectionTimeout: env.DATABASE_POOL_ACQUIRE_TIMEOUT_MS,
+          pool: {
+              min: 2,
+              max: 10,
+          },
+      } satisfies Knex.Config);
 
 const configuracaoBase: Knex.Config = {
-    client: 'pg',
-
-    connection,
-
-    pool: {
-        min: 2,
-        max: 10,
-    },
-
+    ...databaseConfig,
     migrations: {
         directory: './src/database/migrations',
         tableName: 'knex_migrations',
         extension: 'js',
     },
-
     seeds: {
         directory: './src/database/seeds',
         extension: 'ts',
     },
 };
 
-const configuracoes: Record<Environment, Knex.Config> = {
-    development: {
-        ...configuracaoBase,
-    },
-
-    test: {
-        ...configuracaoBase,
-    },
-
-    production: {
-        ...configuracaoBase,
-    },
+const configuracoes: Record<DatabaseEnvironment, Knex.Config> = {
+    development: { ...configuracaoBase },
+    test: { ...configuracaoBase },
+    production: { ...configuracaoBase },
 };
 
 export default configuracoes;

@@ -4,6 +4,10 @@ import sessoesClinicasRepository from './sessoes_clinicas.repository.js';
 
 import autorizacaoClinicaService from './autorizacao_clinica.service.js';
 
+import auditoriaClinicaTransacional from './sessoes_clinicas.auditoria_transacional.js';
+
+import type { MetadadosAuditoriaClinica } from './sessoes_clinicas.auditoria_transacional.js';
+
 import type {
     DadosCorrecaoSessaoClinica,
     DadosNovaSessaoClinica,
@@ -12,7 +16,6 @@ import type {
 import type {
     AtualizarSessaoClinicaInput,
     CriarSessaoClinicaInput,
-    FiltrosSessoesClinicasInput,
 } from './sessoes_clinicas.validator.js';
 
 function validarContexto(organizacaoId: string | undefined, areaNegocioId: string | undefined) {
@@ -57,6 +60,7 @@ class SessoesClinicasService {
         areaNegocioId: string | undefined,
         dados: CriarSessaoClinicaInput,
         usuarioId?: string,
+        metadados?: MetadadosAuditoriaClinica,
     ) {
         const contexto = validarContexto(organizacaoId, areaNegocioId);
 
@@ -209,6 +213,18 @@ class SessoesClinicasService {
                     throw erroSessaoNaoEncontrada();
                 }
 
+                // A criação e a auditoria utilizam a MESMA transação.
+                // Uma falha de auditoria desfaz o INSERT da sessão.
+
+                await auditoriaClinicaTransacional.registrar(transaction, {
+                    organizacaoId: contexto.organizacaoId,
+                    areaNegocioId: contexto.areaNegocioId,
+                    sessaoClinicaId: sessao.id,
+                    acao: 'SESSAO_CLINICA.CRIADA',
+                    ...(usuarioId !== undefined && { usuarioId }),
+                    ...(metadados !== undefined && { metadados }),
+                });
+
                 return sessao;
             });
         } catch (error) {
@@ -220,109 +236,13 @@ class SessoesClinicasService {
         }
     }
 
-    async listar(
-        organizacaoId: string | undefined,
-        areaNegocioId: string | undefined,
-        filtros: FiltrosSessoesClinicasInput,
-    ) {
-        const contexto = validarContexto(organizacaoId, areaNegocioId);
-
-        return sessoesClinicasRepository.listar(contexto.organizacaoId, contexto.areaNegocioId, {
-            inicio: new Date(filtros.inicio),
-            fim: new Date(filtros.fim),
-            ...(filtros.clienteId !== undefined && {
-                clienteId: filtros.clienteId,
-            }),
-            ...(filtros.profissionalId !== undefined && {
-                profissionalId: filtros.profissionalId,
-            }),
-        });
-    }
-
-    async buscarPorId(
-        organizacaoId: string | undefined,
-        areaNegocioId: string | undefined,
-        sessaoClinicaId: string,
-    ) {
-        const contexto = validarContexto(organizacaoId, areaNegocioId);
-
-        const sessao = await sessoesClinicasRepository.buscarPorId(
-            contexto.organizacaoId,
-            contexto.areaNegocioId,
-            sessaoClinicaId,
-        );
-
-        if (!sessao) {
-            throw erroSessaoNaoEncontrada();
-        }
-
-        return sessao;
-    }
-
-    async listarAutorizadas(
-        organizacaoId: string | undefined,
-        areaNegocioId: string | undefined,
-        usuarioId: string | undefined,
-        filtros: FiltrosSessoesClinicasInput,
-    ) {
-        const contexto = validarContexto(organizacaoId, areaNegocioId);
-
-        if (!usuarioId) {
-            throw new AppError('Autenticação necessária.', 401, 'AUTENTICACAO_NECESSARIA');
-        }
-
-        return sessoesClinicasRepository.listarAutorizadas(
-            contexto.organizacaoId,
-            contexto.areaNegocioId,
-            usuarioId,
-            {
-                inicio: new Date(filtros.inicio),
-                fim: new Date(filtros.fim),
-                ...(filtros.clienteId !== undefined && {
-                    clienteId: filtros.clienteId,
-                }),
-                ...(filtros.profissionalId !== undefined && {
-                    profissionalId: filtros.profissionalId,
-                }),
-            },
-        );
-    }
-
-    async buscarPorIdAutorizada(
-        organizacaoId: string | undefined,
-        areaNegocioId: string | undefined,
-        usuarioId: string | undefined,
-        sessaoClinicaId: string,
-    ) {
-        const contexto = validarContexto(organizacaoId, areaNegocioId);
-
-        if (!usuarioId) {
-            throw new AppError('Autenticação necessária.', 401, 'AUTENTICACAO_NECESSARIA');
-        }
-
-        const sessao = await sessoesClinicasRepository.buscarPorIdAutorizada(
-            contexto.organizacaoId,
-            contexto.areaNegocioId,
-            usuarioId,
-            sessaoClinicaId,
-        );
-
-        if (!sessao) {
-            throw erroSessaoNaoEncontrada();
-        }
-
-        return sessao;
-    }
-
-    // Preparado para uso após implementarmos
-    // o histórico de correções clínicas.
-
     async corrigir(
         organizacaoId: string | undefined,
         areaNegocioId: string | undefined,
         usuarioId: string | undefined,
         sessaoClinicaId: string,
         dados: AtualizarSessaoClinicaInput,
+        metadados?: MetadadosAuditoriaClinica,
     ) {
         const contexto = validarContexto(organizacaoId, areaNegocioId);
 
@@ -450,41 +370,21 @@ class SessoesClinicasService {
                 throw erroSessaoNaoEncontrada();
             }
 
+            await auditoriaClinicaTransacional.registrar(transaction, {
+                organizacaoId: contexto.organizacaoId,
+                areaNegocioId: contexto.areaNegocioId,
+                usuarioId,
+                sessaoClinicaId,
+                acao: 'SESSAO_CLINICA.CORRIGIDA',
+                camposAlterados,
+                ...(metadados !== undefined && { metadados }),
+            });
+
             return {
                 sessao: sessaoAtualizada,
                 camposAlterados,
             };
         });
-    }
-
-    async listarHistoricoCorrecoes(
-        organizacaoId: string | undefined,
-        areaNegocioId: string | undefined,
-        usuarioId: string | undefined,
-        sessaoClinicaId: string,
-    ) {
-        const contexto = validarContexto(organizacaoId, areaNegocioId);
-
-        if (!usuarioId) {
-            throw new AppError('Autenticação necessária.', 401, 'AUTENTICACAO_NECESSARIA');
-        }
-
-        // Verifica a identidade clínica única, a autorização
-        // e a titularidade da sessão antes da consulta.
-        await autorizacaoClinicaService.exigirTitularidadeSessao(
-            usuarioId,
-            contexto.organizacaoId,
-            contexto.areaNegocioId,
-            sessaoClinicaId,
-        );
-
-        // O próprio SQL aplica novamente as restrições.
-        return sessoesClinicasRepository.listarHistoricoCorrecoesAutorizado(
-            contexto.organizacaoId,
-            contexto.areaNegocioId,
-            usuarioId,
-            sessaoClinicaId,
-        );
     }
 }
 
