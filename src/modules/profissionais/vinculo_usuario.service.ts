@@ -14,6 +14,57 @@ type AlterarVinculoUsuarioInput = {
 };
 
 class VinculoUsuarioService {
+    async consultar(dados: {
+        organizacaoId: string;
+        areaNegocioId: string;
+        profissionalId: string;
+    }) {
+        const profissional = await connection('profissionais as p')
+            .innerJoin('profissionais_areas as pa', 'pa.profissional_id', 'p.id')
+            .innerJoin('areas_negocio as a', 'a.id', 'pa.area_negocio_id')
+            .select('p.id', 'p.usuario_id', 'p.ativo as profissional_ativo')
+            .where('p.id', dados.profissionalId)
+            .andWhere('p.organizacao_id', dados.organizacaoId)
+            .andWhere('pa.area_negocio_id', dados.areaNegocioId)
+            .andWhere('pa.ativo', true)
+            .andWhere('a.organizacao_id', dados.organizacaoId)
+            .andWhere('a.ativo', true)
+            .whereNull('p.deletado_em')
+            .whereNull('pa.deletado_em')
+            .whereNull('a.deletado_em')
+            .first();
+
+        if (!profissional) {
+            throw new AppError(
+                'Profissional não encontrado nesta área.',
+                404,
+                'PROFISSIONAL_NAO_ENCONTRADO',
+            );
+        }
+
+        const usuarioId = (profissional.usuario_id as string | null) ?? null;
+        if (!usuarioId) {
+            return { profissionalId: profissional.id, usuario: null, vinculoAtivo: false };
+        }
+
+        const usuario = await connection('usuarios as u')
+            .innerJoin('usuarios_organizacoes as uo', 'uo.usuario_id', 'u.id')
+            .select('u.id', 'u.nome')
+            .where('u.id', usuarioId)
+            .andWhere('u.ativo', true)
+            .andWhere('uo.organizacao_id', dados.organizacaoId)
+            .andWhere('uo.ativo', true)
+            .whereNull('u.deletado_em')
+            .whereNull('uo.deletado_em')
+            .first();
+
+        return {
+            profissionalId: profissional.id,
+            usuario: usuario ? { id: usuario.id, nome: usuario.nome } : null,
+            vinculoAtivo: Boolean(usuario && profissional.profissional_ativo),
+        };
+    }
+
     async alterar(dados: AlterarVinculoUsuarioInput) {
         return connection.transaction(async (tx) => {
             await aplicarTimeoutsTransacaoClinica(tx);

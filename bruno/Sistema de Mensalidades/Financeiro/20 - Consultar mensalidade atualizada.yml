@@ -1,0 +1,33 @@
+info:
+  name: 20 - Consultar mensalidade atualizada
+  type: http
+  seq: 20
+
+http:
+  method: GET
+  url: "{{baseUrl}}/financeiro/mensalidades/{{financeiro-mensalidade-id}}"
+  headers:
+    - name: Cookie
+      value: "{{financeiro-admin-cookie}}"
+    - name: x-organizacao-id
+      value: "{{financeiro-organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{financeiro-area-id}}"
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("mensalidade expõe os dois recebimentos persistidos", function() {
+          expect(res.status).to.equal(200);
+          expect(res.body.data.status).to.equal("PAGA");
+          expect(res.body.data.pagamentos).to.have.length(2);
+          expect(res.body.data.valor_pago).to.equal("100.00");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

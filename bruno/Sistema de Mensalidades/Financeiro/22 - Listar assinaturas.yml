@@ -1,0 +1,32 @@
+info:
+  name: 22 - Listar assinaturas
+  type: http
+  seq: 22
+
+http:
+  method: GET
+  url: "{{baseUrl}}/financeiro/assinaturas?page=1&pageSize=20&status=ATIVA"
+  headers:
+    - name: Cookie
+      value: "{{financeiro-admin-cookie}}"
+    - name: x-organizacao-id
+      value: "{{financeiro-organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{financeiro-area-id}}"
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("assinatura aparece na listagem paginada", function() {
+          expect(res.status).to.equal(200);
+          expect(res.body.data.items.some(function(item) { return item.id === bru.getVar("financeiro-assinatura-id"); })).to.equal(true);
+          expect(res.body.data.pagination.page).to.equal(1);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

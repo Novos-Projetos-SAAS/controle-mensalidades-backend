@@ -295,6 +295,30 @@ test('API v1 bloqueia operador', async () => {
     assert.equal(resposta.body.codigo, 'PERFIL_NAO_AUTORIZADO');
 });
 
+test('API v1 consulta o vínculo atual sem expor e-mail ou credenciais', async () => {
+    const semVinculo = await request(app).get(rota).set(cabecalhos()).expect(200);
+    assert.deepEqual(semVinculo.body.data, {
+        profissionalId: f.profissionalAId,
+        usuario: null,
+        vinculoAtivo: false,
+    });
+
+    await connection('profissionais').where('id', f.profissionalAId).update({
+        usuario_id: f.operadorId,
+    });
+
+    const vinculado = await request(app).get(rota).set(cabecalhos()).expect(200);
+    assert.deepEqual(vinculado.body.data, {
+        profissionalId: f.profissionalAId,
+        usuario: { id: f.operadorId, nome: 'Operador fictício' },
+        vinculoAtivo: true,
+    });
+    assert.equal(JSON.stringify(vinculado.body.data).includes('@'), false);
+
+    const operador = await request(app).get(rota).set(cabecalhos(f.operadorId)).expect(403);
+    assert.equal(operador.body.codigo, 'PERFIL_NAO_AUTORIZADO');
+});
+
 // ============================================================
 // 3. MÓDULO AGENDA DESABILITADO
 // ============================================================
@@ -376,6 +400,13 @@ test('API v1 vincula usuário sem herdar acesso clínico', async () => {
     const profissional = await profissionalAtual();
 
     assert.equal(profissional?.usuario_id, f.operadorId);
+
+    const estadoVinculo = await request(app).get(rota).set(cabecalhos()).expect(200);
+    assert.deepEqual(estadoVinculo.body.data, {
+        profissionalId: f.profissionalAId,
+        usuario: { id: f.operadorId, nome: 'Operador fictício' },
+        vinculoAtivo: true,
+    });
 
     const permissao = await permissaoAtual();
 

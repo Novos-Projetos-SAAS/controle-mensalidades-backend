@@ -1,31 +1,10 @@
 import type { Knex } from 'knex';
 import { env } from '../configuration/env.js';
+import { normalizarSslConnectionString } from './ssl-connection-string.js';
+
+export { normalizarSslConnectionString } from './ssl-connection-string.js';
 
 export type DatabaseEnvironment = 'development' | 'test' | 'production';
-
-export function normalizarSslConnectionString(
-    connectionString: string,
-    exigirVerificacaoCertificado: boolean,
-): string {
-    let url: URL;
-
-    try {
-        url = new URL(connectionString);
-    } catch {
-        throw new Error('DATABASE_URL inválida; verifique o formato sem expor credenciais.');
-    }
-
-    const sslmode = url.searchParams.get('sslmode')?.toLowerCase();
-    const tlsSolicitado = sslmode !== undefined && sslmode !== 'disable';
-
-    if (exigirVerificacaoCertificado || tlsSolicitado) {
-        // Fixa a validação da CA e do hostname para não depender da semântica
-        // transitória de "require" no driver pg-connection-string.
-        url.searchParams.set('sslmode', 'verify-full');
-    }
-
-    return url.toString();
-}
 
 export function criarConfiguracaoBanco(
     environment: DatabaseEnvironment,
@@ -61,6 +40,7 @@ export function criarConfiguracaoBanco(
 
         connection: {
             connectionString,
+            connectionTimeoutMillis: env.DATABASE_CONNECTION_TIMEOUT_MS,
         },
 
         acquireConnectionTimeout: env.DATABASE_POOL_ACQUIRE_TIMEOUT_MS,

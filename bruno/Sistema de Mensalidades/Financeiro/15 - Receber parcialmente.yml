@@ -1,0 +1,46 @@
+info:
+  name: 15 - Receber parcialmente
+  type: http
+  seq: 15
+
+http:
+  method: POST
+  url: "{{baseUrl}}/financeiro/mensalidades/{{financeiro-mensalidade-id}}/recebimentos"
+  headers:
+    - name: Cookie
+      value: "{{financeiro-admin-cookie}}"
+    - name: x-organizacao-id
+      value: "{{financeiro-organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{financeiro-area-id}}"
+    - name: Idempotency-Key
+      value: "{{financeiro-chave-parcial}}"
+  body:
+    type: json
+    data: |-
+      {
+        "valor": "25.00",
+        "forma_pagamento": "PIX",
+        "pago_em": "2024-02-05T12:00:00-03:00"
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        if (res.status === 201) bru.setVar("financeiro-pagamento-parcial-id", res.body.data.pagamento.id);
+    - type: tests
+      code: |-
+        test("recebimento parcial persiste saldo e pagamento", function() {
+          expect(res.status).to.equal(201);
+          expect(res.body.data.mensalidade.valor_pago).to.equal("25.00");
+          expect(res.body.data.mensalidade.saldo).to.equal("75.00");
+          expect(bru.getVar("financeiro-pagamento-parcial-id")).to.be.a("string");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -144,3 +144,150 @@ Os itens acima permanecem pendentes até evidência registrada pela equipe do am
 6. Só após uma decisão explícita posterior avaliar uma feature gate restrita; esta etapa não habilita nem monta as rotas.
 7. Monitorar `requestId`, categorias de falha do banco, timeouts, deadlocks, pool e respostas 5xx sem coletar conteúdo clínico.
 8. Interromper a participação se houver falha de autorização, auditoria, trigger, TLS, backup ou exposição em logs. Preferir reverter a aplicação mantendo as proteções de banco.
+
+## Etapa 17.1 — evidências e fechamento operacional
+
+Registro de 2026-11-08. O escopo foi limitado a alterações locais, diagnósticos de leitura no banco de teste e validações Bruno locais. Nenhuma conexão de homologação/produção foi selecionada; nenhum `GRANT`, `REVOKE`, migration, alteração de backup ou operação de restauração foi executada. As rotas clínicas seguem fora da API v1 e bloqueadas pelo middleware.
+
+### Resultado das pendências
+
+| Controle                                  | Estado                                                                    | Evidência obtida                                                                                                                                                                                                                                                                                            | Próxima ação e responsável sugerido                                                                                                  | Critério de aprovação / bloqueador                                                                                                                                                                       |
+| ----------------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Role mínima de runtime                    | **REPROVADO no banco de teste**; **NÃO VERIFICADO em homologação**        | Diagnóstico somente leitura em `.env.test`, role `neondb_owner`, sem superuser; proprietária da tabela/função clínica; `CREATE` no schema e banco; `SELECT`/`INSERT`/`UPDATE`/`DELETE`/`TRUNCATE` no histórico. Membership de migrations não foi verificado porque a role não foi identificada/configurada. | DBA/administrador Neon deve criar ou selecionar role de runtime e role de migrations separada.                                       | Rodar com a credencial de runtime real em homologação; comprovar ausência de ownership, superuser, membership de migrations, `CREATE`, `UPDATE`, `DELETE` e `TRUNCATE`; triggers devem estar `O` ou `A`. |
+| Handshake TLS                             | **APROVADO somente no banco de teste**; **NÃO VERIFICADO em homologação** | Handshake real em `.env.test`, `verify-full`, certificado autorizado, hostname validado, TLS 1.3 / `TLS_AES_256_GCM_SHA384`; nenhum SQL executado.                                                                                                                                                          | Administrador Neon fornece identificação do endpoint de homologação; operador confere host/database na console e roda o diagnóstico. | Handshake real com credencial de runtime de homologação, cadeia autorizada, hostname validado e `verify-full`. Teste unitário sozinho não satisfaz o critério.                                           |
+| Backup/PITR e recuperação no projeto Neon | **NÃO VERIFICADO**                                                        | A documentação pública da Neon descreve Instant Restore/PITR dentro da janela de histórico e snapshots com restauração para branch; o projeto, conta, plano, retenção, snapshots e permissões deste workspace não foram inspecionados.                                                                      | Administrador Neon/DBA e responsável de negócio devem registrar o que está habilitado no projeto e realizar um exercício isolado.    | Evidência de configuração/último ponto disponível, restauração em branch isolada, integridade validada, controle de acesso e resultado de exercício aprovado.                                            |
+| RPO/RTO                                   | **PENDENTE de decisão**                                                   | Dependências e alternativas estão abaixo; nenhum valor foi aprovado.                                                                                                                                                                                                                                        | Responsável de negócio, com DBA e responsável de continuidade.                                                                       | Aprovação registrada, compatível com retenção/preço do plano, cobertura de plantão e resultado do teste de recuperação.                                                                                  |
+| Arquivos YAML Bruno                       | **APROVADO após correção**                                                | Bruno CLI 4.3.0: zero arquivos ignorados após remover U+200B dos três arquivos reproduzidos.                                                                                                                                                                                                                | Responsável da coleção Bruno deve manter validação antes dos testes de API.                                                          | CLI deve continuar sem `Skipping invalid file`; coleções clínicas passam com fixtures de teste. A afirmação anterior de quatro arquivos não se reproduziu nesta cópia: foram listados três.              |
+
+### Matriz recomendada de permissões
+
+Esta é uma matriz de princípio, a aplicar somente após inventário completo das consultas e revisão do DBA. Não é um script de grants nem uma confirmação dos grants existentes.
+
+| Objeto/tabela                                             | Runtime HTTP                                                                                                                                                | Role de migrations                                                                | Observação                                                                                                     |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Banco da aplicação                                        | `CONNECT`; sem `CREATE`                                                                                                                                     | `CONNECT`; `CREATE` no banco só se o processo de provisionamento realmente exigir | Criar banco/projeto é responsabilidade de provisionamento, não do job de migrations comum.                     |
+| Schema da aplicação                                       | `USAGE`; sem `CREATE`                                                                                                                                       | `USAGE` e `CREATE` durante migrations controladas                                 | Runtime não deve criar tabelas, funções, schemas, índices ou triggers.                                         |
+| `sessoes_clinicas`                                        | `SELECT`, `INSERT`, `UPDATE` estritamente necessários; sem `DELETE`/`TRUNCATE`                                                                              | DDL/DML de migration sob janela aprovada                                          | Soft delete e correção preservam trilha; não conceder `TRUNCATE`. Revisar permissões por coluna quando viável. |
+| `historico_correcoes_sessoes_clinicas`                    | `SELECT`, `INSERT`; sem `UPDATE`, `DELETE`, `TRUNCATE`, `TRIGGER` ou ownership                                                                              | Alterações estruturais apenas pelo job/owner de migrations, com janela e revisão  | Os triggers 058/061 são defesa adicional; não substituem privilégios mínimos.                                  |
+| `profissionais_areas`                                     | `SELECT` e atualização estritamente necessária do indicador de autorização clínica; demais DML somente conforme outros fluxos administrativos inventariados | DDL controlada                                                                    | Não conceder permissões amplas de tabela sem revisar os endpoints que mantêm vínculos e áreas.                 |
+| `registros_auditoria`                                     | `INSERT`; `SELECT` somente se uma rota aprovada realmente consultar registros; sem `UPDATE`/`DELETE`                                                        | DDL controlada                                                                    | Escritas de auditoria ocorrem na mesma transação da operação clínica.                                          |
+| `knex_migrations`                                         | Sem acesso necessário para o processo HTTP                                                                                                                  | `SELECT`/`INSERT`/`UPDATE`/`DELETE` requeridos pelo Knex e ownership controlado   | A credencial é disponibilizada apenas ao job de migrations.                                                    |
+| Demais tabelas da aplicação                               | DML mínimo por tabela/coluna após inventário de repositórios e fluxos                                                                                       | DDL/DML estrutural sob job controlado                                             | Evitar `GRANT ALL ON ALL TABLES`; sequences recebem só `USAGE`/`SELECT` nas usadas.                            |
+| Função `impedir_alteracao_historico_correcoes` e triggers | Sem ownership, `CREATE OR REPLACE`, `ALTER`, `DROP` ou permissão de desabilitar trigger                                                                     | Owner ou role de migrations controlada                                            | Runtime não deve poder substituir a função nem remover/desabilitar os triggers.                                |
+
+O runtime deve ser uma role sem `SUPERUSER`, ownership dos objetos protegidos, membership/`SET ROLE` para a role de migrations, `CREATEROLE`, `BYPASSRLS` ou permissões de replicação. A matriz final deve confirmar também sequences, funções e qualquer privilégio concedido via `PUBLIC` ou roles herdadas.
+
+### Diagnósticos somente leitura
+
+Os comandos de teste abaixo selecionam explicitamente `.env.test`, exigem `AMBIENTE_BANCO=teste` e leem exclusivamente `DATABASE_URL_TEST`:
+
+```powershell
+npm run diagnostico:clinico:privilegios:test
+npm run diagnostico:clinico:tls:test
+```
+
+O diagnóstico PostgreSQL executa `BEGIN READ ONLY`, consultas a `pg_roles`, `pg_class`, `pg_proc`, `pg_trigger` e funções `has_*_privilege`/`pg_has_role`, depois encerra a transação. Não emite DDL/DML, não lê linhas clínicas e não exibe connection string. Quando `DIAGNOSTIC_MIGRATIONS_ROLE` não for fornecida, membership dessa role fica `NÃO VERIFICADO`, não presumida como ausente. Triggers em modo `R` não contam como ativos para sessões normais; `O` e `A` contam.
+
+O diagnóstico TLS conecta com `verify-full`, valida a autorização do certificado e o hostname pelo driver TLS e encerra a conexão sem executar SQL. Erros são reduzidos a categorias; mensagem do driver, URL, host, certificado e credenciais não são impressos.
+
+Para homologação, não existe comando que selecione endpoint automaticamente. O operador deve obter a connection string da role **runtime** pelo secret manager e conferir o host/database na console Neon. Em sessão `NODE_ENV` diferente de `production`, fornecer `DIAGNOSTIC_DATABASE_URL`, `DIAGNOSTIC_EXPECTED_HOST` e `DIAGNOSTIC_EXPECTED_DATABASE` sem imprimir valores e executar manualmente:
+
+```powershell
+node --import tsx src/diagnostics/postgres-clinico.ts --target=homologacao --confirm=homologacao
+node --import tsx src/diagnostics/tls-clinico.ts --target=homologacao --confirm=homologacao
+```
+
+Os dois scripts recusam target `production`, recusam `NODE_ENV=production`, exigem confirmação explícita e validam o host e banco informados contra a URL sem mostrá-los. Produção não foi nem será selecionada automaticamente.
+
+### Backup, restauração e integridade
+
+Neon documenta Instant Restore/PITR dentro da janela de histórico configurada. A página oficial de branching, atualizada em 01/09/2026, informa defaults de 6 horas no plano Free e 1 dia nos planos pagos; o máximo configurável é 7 dias em Launch e 30 dias em Scale, com aumento de armazenamento conforme a janela cresce. O artigo oficial de snapshots publicado em 11/11/2025 descreve snapshots agendados diários, semanais ou mensais. Esses materiais descrevem o produto, mas não comprovam o plano, a disponibilidade atual, a janela, a agenda, a retenção, o custo ou as permissões da conta deste projeto; todos esses itens dependem de conferência pelo administrador Neon. Referências: [branching e recuperação Neon](https://neon.com/docs/introduction/branching), [snapshots Neon](https://neon.com/blog/three-ways-to-use-your-snapshots), [conexão segura](https://neon.com/docs/connect/connect-securely) e [pool de conexões](https://neon.com/docs/connect/connection-pooling).
+
+Procedimento a aprovar e ensaiar em branch isolada:
+
+1. DBA/administrador confirma o projeto e branch de origem na console; registra plano, janela de PITR habilitada, última execução de snapshot, agenda, retenção, custo e operadores autorizados. Não copiar a URL de conexão para evidências.
+2. Responsável de negócio aprova o ponto de recuperação. On-call abre incidente, interrompe a janela clínica e preserva a branch original para investigação.
+3. DBA cria uma branch de restauração a partir do timestamp/LSN ou snapshot aprovado, sem promover ou sobrescrever a branch original. A branch recebe compute/credenciais somente quando necessário e fica restrita ao grupo de recuperação.
+4. Validar schema/migrations aplicadas, constraints/índices esperados, triggers de `UPDATE`/`DELETE` e `TRUNCATE`, contagens agregadas necessárias e conectividade com `verify-full`. Não exibir IDs nem conteúdo de prontuário em logs/evidências.
+5. Fazer o teste de fumaça em ambiente sintético separado. Não exportar dados clínicos reais para laptop, `.env.test`, Bruno, issue ou ambiente de desenvolvimento. Dados restaurados permanecem na branch restrita.
+6. Registrar ticket, aprovador, operadores, horário e ponto escolhido, branch de origem/restauração, janela de retenção observada, checks sem conteúdo clínico, duração real, falhas e decisão final. Segredos não fazem parte da evidência.
+7. Se restauração ou integridade falhar, não promover a branch; manter a origem preservada, escalar DBA/Neon e incidente, comunicar o responsável de negócio e seguir o plano de continuidade aprovado. Excluir branch de análise somente após autorização e preservação das evidências operacionais necessárias.
+
+| Controle de recuperação                    | Estado                  | Responsável sugerido                  | Evidência que falta                                                                            |
+| ------------------------------------------ | ----------------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Owner de backup e on-call                  | **PENDENTE**            | DBA/administrador Neon e operações    | Nomes/escala e canal de incidente.                                                             |
+| PITR, janela atual e custo                 | **NÃO VERIFICADO**      | Administrador Neon                    | Console/contrato com janela e cobrança efetivas no projeto.                                    |
+| Snapshots/agenda e retenção                | **NÃO VERIFICADO**      | Administrador Neon                    | Snapshot disponível, última execução e política efetiva.                                       |
+| Acesso, auditoria e criptografia de backup | **NÃO VERIFICADO**      | Segurança/administrador Neon          | Confirmação de controles aplicáveis a restore/snapshot no projeto e quem pode restaurar.       |
+| Restauração isolada e validação            | **PENDENTE**            | DBA + operações + responsável clínico | Exercício em branch restrita, checks e duração observada.                                      |
+| Cópia fora da conta/projeto Neon           | **PENDENTE de decisão** | Segurança/DBA + negócio               | Avaliar necessidade, destino aprovado, criptografia, retenção, custo e processo de eliminação. |
+
+Nenhuma cópia, snapshot, mudança de PITR ou restauração foi criada por esta etapa.
+
+### Opções para decisão de RPO/RTO
+
+RPO é a perda máxima de dados aceita; RTO é o tempo máximo para restabelecer o serviço. Os números abaixo são **cenários para discussão**, não SLAs, garantias do Neon nem valores aprovados.
+
+| Opção para decisão               | Alvo proposto                    | Dependências e custo/risco a avaliar                                                                                                                                                                                |
+| -------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Essencial                        | RPO até 24 h; RTO até 1 dia útil | Confirmação de restore history suficiente, snapshots/retensão adequados, on-call em horário comercial e exercício de restauração. Pode não atender operação clínica contínua.                                       |
+| Intermediária                    | RPO até 1 h; RTO até 4 h         | Janela PITR superior ao período de detecção/recuperação, alerta rápido, operador fora do horário comercial e restore drill cronometrado. História PITR e compute/branches podem gerar custo variável.               |
+| Alta disponibilidade operacional | RPO até 15 min; RTO até 1 h      | Precisa validar suporte/limites do plano, detecção e plantão 24x7, automação de failover/recuperação, branches/compute disponíveis e teste recorrente. Maior custo e complexidade; não comprovado no sistema atual. |
+
+Decisão pendente: responsável de negócio escolhe cenário e aprova formalmente após estimativa do DBA/Neon, segurança, cobertura de plantão e exercício. Se nenhum cenário for aprovado, mantém-se o bloqueio de homologação clínica.
+
+### Bruno CLI: reparo e inventário
+
+Versão executada: `@usebruno/cli 4.3.0`. A reprodução em `bruno run __codex_no_such_folder__` encontrou três arquivos ignorados, cada qual com um caractere invisível U+200B isolado após o documento YAML. O parser reportava `Implicit map keys need to be followed by map values`. Foram removidos apenas esses caracteres:
+
+- `Clientes/Buscar por CPF.yml` (linha 23).
+- `Clientes/teste.yml` (linha 15).
+- `Módulos por área/Listar módulos de área de outra organização.yml` (linha 21).
+
+A varredura desta cópia não reproduziu um quarto arquivo inválido. A correção não removeu requests, headers, variáveis, scripts nem assertions. O sentinel do Bruno CLI 4.3.0 carregou a coleção após as correções e reportou zero arquivos ignorados.
+
+### RPO, TLS e privilégio: interpretação do resultado
+
+O diagnóstico executado com `--target=test` comprova somente o endpoint de teste e a role que o acessou. Mesmo que retorne privilégio perigoso ou triggers ativos, não representa a role de runtime de homologação. A configuração de TLS e o handshake de teste também não comprovam o handshake do endpoint de homologação. Até haver diagnósticos e evidências do endpoint-alvo, o parecer permanece **PENDÊNCIAS ANTES DA HOMOLOGAÇÃO**.
+
+### Execução final e contagens observadas
+
+- `npm run typecheck`: aprovado.
+- `npm run lint`: aprovado.
+- `npm run format:check`: aprovado.
+- `npm test`: 473 testes aprovados, 0 reprovados, contra `.env.test`.
+- Testes específicos de diagnóstico/configuração: 12/12 aprovados.
+- `git diff --check`: aprovado; somente avisos de conversão LF/CRLF do Git.
+- Bruno `Permissoes Clinicas`: 9 requests executados, 14/14 testes aprovados, 0 ignorados.
+- Bruno `Vinculo Usuario Profissional`: 15 requests executados, 20/20 testes aprovados, 0 ignorados.
+- Diagnóstico PostgreSQL: `REPROVADO` em `.env.test`: role `neondb_owner`, sem superuser, mas com `CREATEROLE`, `BYPASSRLS`, `REPLICATION`, `CREATE` em schema/banco, ownership da tabela/função e `UPDATE`/`DELETE`/`TRUNCATE` no histórico. Triggers 058/061 estão ativos (`O`); membership de migrations: `NÃO VERIFICADO`. Isso não descreve homologação/produção.
+- Diagnóstico TLS: `APROVADO` no endpoint de teste (`verify-full`, hostname e certificado autorizados, TLS 1.3). Nenhuma conexão de homologação/produção foi feita.
+
+A menção inicial a quatro YAML inválidos não se confirmou: a reprodução do CLI encontrou três arquivos. Após corrigi-los, o inventário Bruno informou zero ignorados.
+
+## Etapa 17.2 — preparação local de evidências Neon
+
+Em 08/11/2026, a preparação foi limitada a configuração, documentação e verificações locais. Nenhum endpoint de homologação foi acessado: a autorização explícita para conexão remota não foi concedida nesta etapa. Não foram criados projetos/branches/roles, alterados grants, executadas migrations ou modificadas políticas de backup.
+
+A revisão da configuração encontrou pool Knex `min=2`/`max=10` por processo e timeout de aquisição padrão de 5 segundos, além de timeouts transacionais clínicos configuráveis. Foi adicionado `DATABASE_CONNECTION_TIMEOUT_MS` com default de 8 segundos e limites validados para limitar o tempo de estabelecimento de uma conexão PostgreSQL. Esses valores descrevem defaults locais; overrides e limites efetivos de homologação precisam ser registrados pelo administrador.
+
+A documentação pública Neon foi conferida para evitar usar referências antigas: o histórico de recuperação atualmente publicado depende de plano/configuração e snapshots têm disponibilidade/agenda que devem ser comprovadas na conta. A documentação não foi usada como evidência de configuração real.
+
+Arquivos de acompanhamento criados:
+
+- `docs/clinico/evidencias-homologacao-neon.md` — matriz dos 15 controles, ambiente/evidência/resultado/responsável/pendência/próxima ação.
+- `docs/clinico/checklist-administrador-neon.md` — conferências executáveis pelo administrador do Neon sem expor secrets.
+- `docs/clinico/criterios-entrada-homologacao.md` — critérios obrigatórios, bloqueios objetivos e modelo de decisão da futura Etapa 18.
+
+O diagnóstico de teste anterior continua registrado separadamente: a role de teste foi reprovada por privilégios elevados e ownership de objetos clínicos; o handshake TLS foi aprovado somente para o endpoint de teste. Nenhum resultado foi atribuído a homologação. A matriz atual mantém roles, isolamento, migration 061, TLS, timeouts efetivos, backup/restore, logs e auditoria de homologação como `NÃO VERIFICADO` ou `PENDENTE`, conforme o controle. As rotas clínicas permanecem desmontadas e bloqueadas.
+
+### Verificações executadas nesta preparação
+
+- `npm run typecheck`: aprovado.
+- `npm run lint`: aprovado.
+- `npm run format:check`: aprovado.
+- `npm test`: 474 testes aprovados, 0 reprovados, usando `.env.test`.
+- Prettier nos documentos clínicos alterados: aprovado.
+- `git diff --check`: aprovado; Git emitiu somente avisos conhecidos de conversão LF/CRLF.
+- Rotas: `sessoesClinicasRoutes` não aparece em `src/routes/v1/index.ts`; o middleware continua retornando `ACESSO_CLINICO_NAO_CONFIGURADO`.
+- Nenhum diagnóstico remoto de homologação, migration ou teste destrutivo foi executado nesta etapa.

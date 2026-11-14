@@ -1,0 +1,42 @@
+info:
+  name: 19 - Quitar mensalidade
+  type: http
+  seq: 19
+
+http:
+  method: POST
+  url: "{{baseUrl}}/financeiro/mensalidades/{{financeiro-mensalidade-id}}/recebimentos"
+  headers:
+    - name: Cookie
+      value: "{{financeiro-admin-cookie}}"
+    - name: x-organizacao-id
+      value: "{{financeiro-organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{financeiro-area-id}}"
+    - name: Idempotency-Key
+      value: "{{financeiro-chave-final}}"
+  body:
+    type: json
+    data: |-
+      {
+        "valor": "75.00",
+        "forma_pagamento": "DINHEIRO",
+        "pago_em": "2024-02-06T12:00:00Z"
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("saldo restante quita a mensalidade", function() {
+          expect(res.status).to.equal(201);
+          expect(res.body.data.mensalidade.status).to.equal("PAGA");
+          expect(res.body.data.mensalidade.saldo).to.equal("0.00");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

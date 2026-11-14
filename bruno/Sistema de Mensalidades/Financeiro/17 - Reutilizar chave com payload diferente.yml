@@ -1,0 +1,41 @@
+info:
+  name: 17 - Reutilizar chave com payload diferente
+  type: http
+  seq: 17
+
+http:
+  method: POST
+  url: "{{baseUrl}}/financeiro/mensalidades/{{financeiro-mensalidade-id}}/recebimentos"
+  headers:
+    - name: Cookie
+      value: "{{financeiro-admin-cookie}}"
+    - name: x-organizacao-id
+      value: "{{financeiro-organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{financeiro-area-id}}"
+    - name: Idempotency-Key
+      value: "{{financeiro-chave-parcial}}"
+  body:
+    type: json
+    data: |-
+      {
+        "valor": "26.00",
+        "forma_pagamento": "PIX",
+        "pago_em": "2024-02-05T12:00:00-03:00"
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("payload diferente com a mesma chave recebe 409", function() {
+          expect(res.status).to.equal(409);
+          expect(res.body.codigo).to.equal("CHAVE_IDEMPOTENCIA_REUTILIZADA");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

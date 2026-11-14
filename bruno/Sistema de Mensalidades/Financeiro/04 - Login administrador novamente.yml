@@ -1,0 +1,39 @@
+info:
+  name: 04 - Login administrador novamente
+  type: http
+  seq: 4
+
+http:
+  method: POST
+  url: "{{baseUrl}}/auth/login"
+  body:
+    type: json
+    data: |-
+      {
+        "email": "{{financeiro-admin-email}}",
+        "senha": "{{financeiro-admin-senha}}"
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        if (res.status === 200) {
+          const setCookie = res.getHeader("set-cookie");
+          const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
+          const tokenCookie = cookies.map(String).find(function(cookie) { return cookie.startsWith("token="); });
+          if (tokenCookie) bru.setVar("financeiro-admin-cookie", tokenCookie.split(";")[0]);
+          await bru.cookies.jar().deleteCookie(bru.getEnvVar("baseUrl"), "token");
+        }
+    - type: tests
+      code: |-
+        test("a sessão administrativa é restaurada", function() {
+          expect(res.status).to.equal(200);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

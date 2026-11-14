@@ -1,0 +1,38 @@
+info:
+  name: 08 - Criar plano invalido
+  type: http
+  seq: 8
+
+http:
+  method: POST
+  url: "{{baseUrl}}/financeiro/planos"
+  headers:
+    - name: Cookie
+      value: "{{financeiro-admin-cookie}}"
+    - name: x-organizacao-id
+      value: "{{financeiro-organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{financeiro-area-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "nome": "",
+        "valor_base": -20
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("body de plano inválido recebe 400", function() {
+          expect(res.status).to.equal(400);
+          expect(res.body.codigo).to.equal("DADOS_PLANO_INVALIDOS");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

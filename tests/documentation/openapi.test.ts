@@ -47,12 +47,21 @@ const operacoesEsperadas: Record<string, string[]> = {
     '/profissionais/{profissionalId}/inativar': ['patch'],
     '/profissionais/{profissionalId}/reativar': ['patch'],
     '/profissionais/{profissionalId}/acesso-clinico': ['patch'],
-    '/profissionais/{profissionalId}/usuario': ['patch'],
+    '/profissionais/{profissionalId}/usuario': ['get', 'patch'],
     '/agendamentos': ['get', 'post'],
     '/agendamentos/{agendamentoId}': ['get', 'patch'],
     '/agendamentos/{agendamentoId}/confirmar': ['patch'],
     '/agendamentos/{agendamentoId}/concluir': ['patch'],
     '/agendamentos/{agendamentoId}/cancelar': ['patch'],
+    '/financeiro/planos': ['get', 'post'],
+    '/financeiro/planos/{planoId}': ['get'],
+    '/financeiro/assinaturas': ['get', 'post'],
+    '/financeiro/assinaturas/{assinaturaId}': ['get'],
+    '/financeiro/assinaturas/{assinaturaId}/mensalidades': ['post'],
+    '/financeiro/mensalidades': ['get'],
+    '/financeiro/mensalidades/{mensalidadeId}': ['get'],
+    '/financeiro/mensalidades/{mensalidadeId}/recebimentos': ['post'],
+    '/financeiro/resumo': ['get'],
 };
 
 const rotasOrganizacionais = Object.keys(operacoesEsperadas).filter(
@@ -147,6 +156,16 @@ test('OpenAPI deve exigir os headers de contexto somente nas rotas correspondent
         '/profissionais/{profissionalId}',
         '/profissionais/{profissionalId}/inativar',
         '/profissionais/{profissionalId}/reativar',
+        '/profissionais/{profissionalId}/usuario',
+        '/financeiro/planos',
+        '/financeiro/planos/{planoId}',
+        '/financeiro/assinaturas',
+        '/financeiro/assinaturas/{assinaturaId}',
+        '/financeiro/assinaturas/{assinaturaId}/mensalidades',
+        '/financeiro/mensalidades',
+        '/financeiro/mensalidades/{mensalidadeId}',
+        '/financeiro/mensalidades/{mensalidadeId}/recebimentos',
+        '/financeiro/resumo',
     ]) {
         for (const operacao of Object.values(documento.paths[rota] ?? {})) {
             assert.equal(possuiParametro(operacao, 'x-area-negocio-id'), true, rota);
@@ -732,4 +751,47 @@ test('OpenAPI documenta vínculo de usuário com contrato e autorização corret
     for (const codigo of ['200', '400', '401', '403', '404', '409']) {
         assert.ok(operacao.responses?.[codigo], `Resposta HTTP ${codigo} ausente`);
     }
+});
+
+test('OpenAPI documenta a consulta administrativa do vínculo sem conceder acesso clínico', () => {
+    const operacao = documento.paths['/profissionais/{profissionalId}/usuario']?.get;
+    assert.ok(operacao);
+    assert.deepEqual(operacao.security, [{ cookieAuth: [] }]);
+    for (const nome of ['x-organizacao-id', 'x-area-negocio-id', 'profissionalId']) {
+        assert.equal(possuiParametro(operacao, nome), true, nome);
+    }
+    assert.match(String(operacao.description), /ADMINISTRADOR/);
+    assert.match(String(operacao.description), /não concede acesso clínico/);
+});
+
+test('OpenAPI documenta headers, perfis e idempotência do financeiro', () => {
+    const rotasFinanceiras = [
+        '/financeiro/planos',
+        '/financeiro/planos/{planoId}',
+        '/financeiro/assinaturas',
+        '/financeiro/assinaturas/{assinaturaId}',
+        '/financeiro/assinaturas/{assinaturaId}/mensalidades',
+        '/financeiro/mensalidades',
+        '/financeiro/mensalidades/{mensalidadeId}',
+        '/financeiro/mensalidades/{mensalidadeId}/recebimentos',
+        '/financeiro/resumo',
+    ];
+
+    for (const rota of rotasFinanceiras) {
+        for (const operacao of Object.values(documento.paths[rota] ?? {})) {
+            assert.deepEqual(operacao.security, [{ cookieAuth: [] }], rota);
+            assert.equal(possuiParametro(operacao, 'x-organizacao-id'), true, rota);
+            assert.equal(possuiParametro(operacao, 'x-area-negocio-id'), true, rota);
+            assert.match(String(operacao.description), /ADMINISTRADOR/);
+        }
+    }
+
+    const recebimento =
+        documento.paths['/financeiro/mensalidades/{mensalidadeId}/recebimentos']!.post!;
+    assert.equal(possuiParametro(recebimento, 'Idempotency-Key'), true);
+    assert.ok(recebimento.responses?.['409']);
+    const schemaRecebimento = documento.components.schemas.RegistrarRecebimentoFinanceiro;
+    assert.ok(schemaRecebimento);
+    const propriedadesRecebimento = schemaRecebimento.properties as ObjetoJson;
+    assert.equal((propriedadesRecebimento.valor as ObjetoJson).type, 'string');
 });

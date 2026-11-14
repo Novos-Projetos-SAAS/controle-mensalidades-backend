@@ -1,0 +1,31 @@
+info:
+  name: 07 - Plano de outra area
+  type: http
+  seq: 7
+
+http:
+  method: GET
+  url: "{{baseUrl}}/financeiro/planos/{{financeiro-plano-outra-area-id}}"
+  headers:
+    - name: Cookie
+      value: "{{financeiro-admin-cookie}}"
+    - name: x-organizacao-id
+      value: "{{financeiro-organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{financeiro-area-id}}"
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("plano de outra área não é revelado", function() {
+          expect(res.status).to.equal(404);
+          expect(res.body.codigo).to.equal("PLANO_NAO_ENCONTRADO");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -2,6 +2,8 @@ import cors from 'cors';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 
+import { env } from './configuration/env.js';
+import { criarOpcoesCors, resolverOrigensCors } from './configuration/cors.js';
 import docsRoutes from './documentation/docs.routes.js';
 import errorHandler from './middlewares/errorHandler.middleware.js';
 import { limitadorGeral } from './middlewares/rateLimit.middleware.js';
@@ -12,10 +14,11 @@ import routes from './routes/index.js';
 import AppError from './shared/errors/AppError.js';
 
 const app = express();
+const origensCors = resolverOrigensCors(env.CORS_ALLOWED_ORIGINS, env.NODE_ENV);
 
 app.use(requestId);
 
-app.use(cors());
+app.use(cors(criarOpcoesCors(origensCors)));
 
 app.use(express.json());
 

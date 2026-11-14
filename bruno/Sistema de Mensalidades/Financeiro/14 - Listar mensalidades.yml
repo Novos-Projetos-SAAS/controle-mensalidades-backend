@@ -1,0 +1,32 @@
+info:
+  name: 14 - Listar mensalidades
+  type: http
+  seq: 14
+
+http:
+  method: GET
+  url: "{{baseUrl}}/financeiro/mensalidades?status=VENCIDA&vencimentoDe=2024-02-01&vencimentoAte=2024-02-29"
+  headers:
+    - name: Cookie
+      value: "{{financeiro-admin-cookie}}"
+    - name: x-organizacao-id
+      value: "{{financeiro-organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{financeiro-area-id}}"
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("mensalidades vencidas filtram por situação e vencimento", function() {
+          expect(res.status).to.equal(200);
+          expect(res.body.data.items.some(function(item) { return item.id === bru.getVar("financeiro-mensalidade-id"); })).to.equal(true);
+          expect(res.body.data.items[0].status).to.equal("VENCIDA");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

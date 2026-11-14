@@ -1,0 +1,40 @@
+info:
+  name: 24 - Cliente de outra area
+  type: http
+  seq: 24
+
+http:
+  method: POST
+  url: "{{baseUrl}}/financeiro/assinaturas"
+  headers:
+    - name: Cookie
+      value: "{{financeiro-admin-cookie}}"
+    - name: x-organizacao-id
+      value: "{{financeiro-organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{financeiro-area-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "cliente_id": "{{financeiro-cliente-outra-area-id}}",
+        "plano_comercial_id": "{{financeiro-plano-existente-id}}",
+        "dia_vencimento": 5,
+        "inicio_em": "2024-01-01"
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("cliente associado a outra área não pode assinar", function() {
+          expect(res.status).to.equal(404);
+          expect(res.body.codigo).to.equal("CLIENTE_FINANCEIRO_NAO_ENCONTRADO");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

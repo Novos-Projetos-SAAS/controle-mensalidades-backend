@@ -23,6 +23,7 @@ vinculoUsuarioRoutes.use(
 );
 
 // PATCH /profissionais/:profissionalId/usuario
+vinculoUsuarioRoutes.get('/:profissionalId/usuario', vinculoUsuarioController.consultar);
 vinculoUsuarioRoutes.patch('/:profissionalId/usuario', vinculoUsuarioController.alterar);
 
 export default vinculoUsuarioRoutes;

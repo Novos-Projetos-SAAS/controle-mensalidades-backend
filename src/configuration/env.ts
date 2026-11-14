@@ -25,6 +25,8 @@ const envSchema = z
 
         DB_SSL: z.enum(['true', 'false']).optional(),
 
+        CORS_ALLOWED_ORIGINS: z.string().optional(),
+
         CLINICAL_DB_STATEMENT_TIMEOUT_MS: z.coerce
             .number()
             .int()
@@ -42,6 +44,8 @@ const envSchema = z
             .default(30000),
 
         DATABASE_POOL_ACQUIRE_TIMEOUT_MS: z.coerce.number().int().min(500).max(60000).default(5000),
+
+        DATABASE_CONNECTION_TIMEOUT_MS: z.coerce.number().int().min(500).max(60000).default(8000),
 
         JWT_SECRET: z.string().min(1).optional(),
 

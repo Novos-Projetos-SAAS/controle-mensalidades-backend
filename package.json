@@ -13,6 +13,8 @@
         "lint:fix": "eslint src tests --fix",
         "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
         "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\"",
+        "diagnostico:clinico:privilegios:test": "node --env-file=.env.test --import ./tests/bruno/tsx_windows_shim.mjs --import tsx src/diagnostics/postgres-clinico.ts --target=test --confirm=test",
+        "diagnostico:clinico:tls:test": "node --env-file=.env.test --import ./tests/bruno/tsx_windows_shim.mjs --import tsx src/diagnostics/tls-clinico.ts --target=test --confirm=test",
         "migrate:latest": "tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts migrate:latest",
         "migrate:rollback": "tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts migrate:rollback",
         "migrate:status": "tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts migrate:status"

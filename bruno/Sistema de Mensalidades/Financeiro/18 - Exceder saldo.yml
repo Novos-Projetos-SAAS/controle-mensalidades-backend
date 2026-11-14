@@ -1,0 +1,41 @@
+info:
+  name: 18 - Exceder saldo
+  type: http
+  seq: 18
+
+http:
+  method: POST
+  url: "{{baseUrl}}/financeiro/mensalidades/{{financeiro-mensalidade-id}}/recebimentos"
+  headers:
+    - name: Cookie
+      value: "{{financeiro-admin-cookie}}"
+    - name: x-organizacao-id
+      value: "{{financeiro-organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{financeiro-area-id}}"
+    - name: Idempotency-Key
+      value: "{{financeiro-chave-excesso}}"
+  body:
+    type: json
+    data: |-
+      {
+        "valor": "75.01",
+        "forma_pagamento": "PIX",
+        "pago_em": "2024-02-06T12:00:00Z"
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("recebimento acima do saldo recebe 409", function() {
+          expect(res.status).to.equal(409);
+          expect(res.body.codigo).to.equal("VALOR_ACIMA_DO_SALDO");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

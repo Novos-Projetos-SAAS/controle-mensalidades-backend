@@ -13,6 +13,15 @@ test('deve usar valores padrão das variáveis de ambiente', () => {
     assert.equal(resultado.CLINICAL_DB_LOCK_TIMEOUT_MS, 3000);
     assert.equal(resultado.CLINICAL_DB_IDLE_TRANSACTION_TIMEOUT_MS, 30000);
     assert.equal(resultado.DATABASE_POOL_ACQUIRE_TIMEOUT_MS, 5000);
+    assert.equal(resultado.DATABASE_CONNECTION_TIMEOUT_MS, 8000);
+});
+
+test('deve validar timeout de conexão PostgreSQL configurável', () => {
+    const resultado = validarEnv({ DATABASE_CONNECTION_TIMEOUT_MS: '12000' });
+
+    assert.equal(resultado.DATABASE_CONNECTION_TIMEOUT_MS, 12000);
+    assert.throws(() => validarEnv({ DATABASE_CONNECTION_TIMEOUT_MS: '499' }));
+    assert.throws(() => validarEnv({ DATABASE_CONNECTION_TIMEOUT_MS: '60001' }));
 });
 
 test('deve converter PORT de string para número', () => {

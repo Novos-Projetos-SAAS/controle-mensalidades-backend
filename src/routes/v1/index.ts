@@ -14,6 +14,7 @@ import profissionaisRoutes from '../../modules/profissionais/profissionais.route
 import agendamentosRoutes from '../../modules/agendamentos/agendamentos.routes.js';
 import permissoesClinicasRoutes from '../../modules/profissionais/permissoes_clinicas.routes.js';
 import vinculoUsuarioRoutes from '../../modules/profissionais/vinculo_usuario.routes.js';
+import financeiroRoutes from '../../modules/financeiro/financeiro.routes.js';
 
 const v1Routes = Router();
 
@@ -37,5 +38,6 @@ v1Routes.use('/profissionais', permissoesClinicasRoutes);
 v1Routes.use('/profissionais', vinculoUsuarioRoutes);
 
 v1Routes.use('/agendamentos', agendamentosRoutes);
+v1Routes.use('/financeiro', financeiroRoutes);
 
 export default v1Routes;

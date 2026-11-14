@@ -15,6 +15,33 @@ const alterarVinculoSchema = z
     .strict();
 
 class VinculoUsuarioController {
+    async consultar(req: Request, res: Response, next: NextFunction) {
+        try {
+            if (!req.auth?.areaNegocioId) {
+                throw new AppError(
+                    'Área de negócio não informada.',
+                    400,
+                    'AREA_NEGOCIO_NAO_INFORMADA',
+                );
+            }
+
+            const profissionalId = validarProfissionalId(req.params.profissionalId);
+            const data = await vinculoUsuarioService.consultar({
+                organizacaoId: req.auth.organizacaoId,
+                areaNegocioId: req.auth.areaNegocioId,
+                profissionalId,
+            });
+
+            return res.status(200).json({
+                status: 'success',
+                message: 'Vínculo do profissional consultado.',
+                data,
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
     async alterar(req: Request, res: Response, next: NextFunction) {
         try {
             if (!req.auth) {

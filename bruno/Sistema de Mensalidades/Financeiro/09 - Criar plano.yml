@@ -1,0 +1,42 @@
+info:
+  name: 09 - Criar plano
+  type: http
+  seq: 9
+
+http:
+  method: POST
+  url: "{{baseUrl}}/financeiro/planos"
+  headers:
+    - name: Cookie
+      value: "{{financeiro-admin-cookie}}"
+    - name: x-organizacao-id
+      value: "{{financeiro-organizacao-id}}"
+    - name: x-area-negocio-id
+      value: "{{financeiro-area-id}}"
+  body:
+    type: json
+    data: |-
+      {
+        "nome": "Plano criado pelo Bruno",
+        "valor_base": "100.00"
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        if (res.status === 201) bru.setVar("financeiro-plano-criado-id", res.body.data.id);
+    - type: tests
+      code: |-
+        test("plano mensal é criado e retornado", function() {
+          expect(res.status).to.equal(201);
+          expect(res.body.data.periodicidade).to.equal("MENSAL");
+          expect(bru.getVar("financeiro-plano-criado-id")).to.be.a("string");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

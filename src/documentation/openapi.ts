@@ -384,6 +384,11 @@ const openApiDocument = {
             description:
                 'Agenda diária da área atual, com duração histórica, transições de estado e prevenção concorrente de sobreposições.',
         },
+        {
+            name: 'Financeiro',
+            description:
+                'Planos, assinaturas, mensalidades e recebimentos manuais. Exige perfil ADMINISTRADOR.',
+        },
     ],
     paths: {
         '/health': {
@@ -987,6 +992,26 @@ const openApiDocument = {
         },
 
         '/profissionais/{profissionalId}/usuario': {
+            get: {
+                tags: ['Profissionais'],
+                summary: 'Consultar usuário vinculado ao profissional',
+                description:
+                    'Exige perfil ADMINISTRADOR e vínculo ativo do profissional à área informada. Retorna somente nome e UUID do usuário ativo na organização; não concede acesso clínico.',
+                operationId: 'consultarVinculoUsuarioProfissional',
+                security: segurancaCookie,
+                parameters: [
+                    parametroOrganizacao,
+                    parametroAreaContexto,
+                    parametroProfissionalPath,
+                ],
+                responses: {
+                    '200': respostaJson(
+                        'Vínculo atual do profissional.',
+                        referencia('RespostaConsultaVinculoUsuarioProfissional'),
+                    ),
+                    ...erros('400', '401', '403', '404'),
+                },
+            },
             patch: {
                 tags: ['Profissionais'],
                 summary: 'Vincular ou desvincular usuário de um profissional',
@@ -1164,6 +1189,327 @@ const openApiDocument = {
                         referencia('RespostaAgendamento'),
                     ),
                     ...erros('400', '401', '403', '404', '409'),
+                },
+            },
+        },
+        '/financeiro/planos': {
+            get: {
+                tags: ['Financeiro'],
+                summary: 'Listar planos ativos',
+                description:
+                    'Exige perfil ADMINISTRADOR. Retorna planos da área atual e planos globais da organização.',
+                operationId: 'listarPlanosFinanceiros',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao, parametroAreaContexto],
+                responses: {
+                    '200': respostaJson(
+                        'Planos disponíveis.',
+                        referencia('RespostaPlanosFinanceiros'),
+                    ),
+                    ...erros('400', '401', '403'),
+                },
+            },
+            post: {
+                tags: ['Financeiro'],
+                summary: 'Criar plano mensal',
+                description: 'Cria plano positivo com periodicidade MENSAL. Exige ADMINISTRADOR.',
+                operationId: 'criarPlanoFinanceiro',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao, parametroAreaContexto],
+                requestBody: corpoJson(referencia('CriarPlanoFinanceiro')),
+                responses: {
+                    '201': respostaJson('Plano criado.', referencia('RespostaPlanoFinanceiro')),
+                    ...erros('400', '401', '403'),
+                },
+            },
+        },
+        '/financeiro/planos/{planoId}': {
+            get: {
+                tags: ['Financeiro'],
+                summary: 'Consultar plano',
+                description:
+                    'Exige perfil ADMINISTRADOR; UUIDs fora da organização ou área retornam 404.',
+                operationId: 'buscarPlanoFinanceiro',
+                security: segurancaCookie,
+                parameters: [
+                    parametroOrganizacao,
+                    parametroAreaContexto,
+                    {
+                        name: 'planoId',
+                        in: 'path',
+                        required: true,
+                        schema: { type: 'string', format: 'uuid' },
+                    },
+                ],
+                responses: {
+                    '200': respostaJson('Plano encontrado.', referencia('RespostaPlanoFinanceiro')),
+                    ...erros('400', '401', '403', '404'),
+                },
+            },
+        },
+        '/financeiro/assinaturas': {
+            get: {
+                tags: ['Financeiro'],
+                summary: 'Listar assinaturas',
+                description:
+                    'Exige perfil ADMINISTRADOR. A listagem é limitada à organização e à área atuais.',
+                operationId: 'listarAssinaturasFinanceiras',
+                security: segurancaCookie,
+                parameters: [
+                    parametroOrganizacao,
+                    parametroAreaContexto,
+                    {
+                        name: 'page',
+                        in: 'query',
+                        schema: { type: 'integer', minimum: 1, default: 1 },
+                    },
+                    {
+                        name: 'pageSize',
+                        in: 'query',
+                        schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+                    },
+                    { name: 'clienteId', in: 'query', schema: { type: 'string', format: 'uuid' } },
+                    {
+                        name: 'status',
+                        in: 'query',
+                        schema: { type: 'string', enum: ['ATIVA', 'CANCELADA', 'ENCERRADA'] },
+                    },
+                ],
+                responses: {
+                    '200': respostaJson(
+                        'Assinaturas paginadas.',
+                        referencia('RespostaAssinaturasFinanceiras'),
+                    ),
+                    ...erros('400', '401', '403'),
+                },
+            },
+            post: {
+                tags: ['Financeiro'],
+                summary: 'Criar assinatura mensal',
+                description:
+                    'Exige perfil ADMINISTRADOR. Vincula cliente ativo da área a plano mensal ativo da mesma organização.',
+                operationId: 'criarAssinaturaFinanceira',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao, parametroAreaContexto],
+                requestBody: corpoJson(referencia('CriarAssinaturaFinanceira')),
+                responses: {
+                    '201': respostaJson(
+                        'Assinatura criada.',
+                        referencia('RespostaAssinaturaFinanceira'),
+                    ),
+                    ...erros('400', '401', '403', '404', '409'),
+                },
+            },
+        },
+        '/financeiro/assinaturas/{assinaturaId}': {
+            get: {
+                tags: ['Financeiro'],
+                summary: 'Consultar assinatura',
+                description:
+                    'Exige perfil ADMINISTRADOR; UUIDs fora da organização ou área retornam 404.',
+                operationId: 'buscarAssinaturaFinanceira',
+                security: segurancaCookie,
+                parameters: [
+                    parametroOrganizacao,
+                    parametroAreaContexto,
+                    {
+                        name: 'assinaturaId',
+                        in: 'path',
+                        required: true,
+                        schema: { type: 'string', format: 'uuid' },
+                    },
+                ],
+                responses: {
+                    '200': respostaJson(
+                        'Assinatura encontrada.',
+                        referencia('RespostaAssinaturaFinanceira'),
+                    ),
+                    ...erros('400', '401', '403', '404'),
+                },
+            },
+        },
+        '/financeiro/assinaturas/{assinaturaId}/mensalidades': {
+            post: {
+                tags: ['Financeiro'],
+                summary: 'Gerar mensalidade de uma competência',
+                description:
+                    'Exige perfil ADMINISTRADOR. Geração manual e idempotente por assinatura e competência; sem cobrança automática.',
+                operationId: 'gerarMensalidadeFinanceira',
+                security: segurancaCookie,
+                parameters: [
+                    parametroOrganizacao,
+                    parametroAreaContexto,
+                    {
+                        name: 'assinaturaId',
+                        in: 'path',
+                        required: true,
+                        schema: { type: 'string', format: 'uuid' },
+                    },
+                ],
+                requestBody: corpoJson(referencia('GerarMensalidadeFinanceira')),
+                responses: {
+                    '201': respostaJson(
+                        'Mensalidade criada.',
+                        referencia('RespostaGeracaoMensalidade'),
+                    ),
+                    '200': respostaJson(
+                        'Mensalidade já existente.',
+                        referencia('RespostaGeracaoMensalidade'),
+                    ),
+                    ...erros('400', '401', '403', '404', '409'),
+                },
+            },
+        },
+        '/financeiro/mensalidades': {
+            get: {
+                tags: ['Financeiro'],
+                summary: 'Listar mensalidades',
+                description:
+                    'Exige perfil ADMINISTRADOR. Situação e vencimento são calculados no momento da consulta.',
+                operationId: 'listarMensalidadesFinanceiras',
+                security: segurancaCookie,
+                parameters: [
+                    parametroOrganizacao,
+                    parametroAreaContexto,
+                    {
+                        name: 'page',
+                        in: 'query',
+                        schema: { type: 'integer', minimum: 1, default: 1 },
+                    },
+                    {
+                        name: 'pageSize',
+                        in: 'query',
+                        schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+                    },
+                    { name: 'clienteId', in: 'query', schema: { type: 'string', format: 'uuid' } },
+                    {
+                        name: 'competencia',
+                        in: 'query',
+                        schema: { type: 'string', pattern: '^\\d{4}-(0[1-9]|1[0-2])$' },
+                    },
+                    {
+                        name: 'status',
+                        in: 'query',
+                        schema: {
+                            type: 'string',
+                            enum: ['PENDENTE', 'PARCIAL', 'VENCIDA', 'PAGA', 'CANCELADA'],
+                        },
+                    },
+                    {
+                        name: 'vencimentoDe',
+                        in: 'query',
+                        schema: { type: 'string', format: 'date' },
+                    },
+                    {
+                        name: 'vencimentoAte',
+                        in: 'query',
+                        schema: { type: 'string', format: 'date' },
+                    },
+                ],
+                responses: {
+                    '200': respostaJson(
+                        'Mensalidades paginadas.',
+                        referencia('RespostaMensalidadesFinanceiras'),
+                    ),
+                    ...erros('400', '401', '403'),
+                },
+            },
+        },
+        '/financeiro/mensalidades/{mensalidadeId}': {
+            get: {
+                tags: ['Financeiro'],
+                summary: 'Consultar mensalidade e recebimentos',
+                description:
+                    'Exige perfil ADMINISTRADOR; UUIDs fora da organização ou área retornam 404.',
+                operationId: 'buscarMensalidadeFinanceira',
+                security: segurancaCookie,
+                parameters: [
+                    parametroOrganizacao,
+                    parametroAreaContexto,
+                    {
+                        name: 'mensalidadeId',
+                        in: 'path',
+                        required: true,
+                        schema: { type: 'string', format: 'uuid' },
+                    },
+                ],
+                responses: {
+                    '200': respostaJson(
+                        'Mensalidade encontrada.',
+                        referencia('RespostaMensalidadeFinanceira'),
+                    ),
+                    ...erros('400', '401', '403', '404'),
+                },
+            },
+        },
+        '/financeiro/mensalidades/{mensalidadeId}/recebimentos': {
+            post: {
+                tags: ['Financeiro'],
+                summary: 'Registrar recebimento manual',
+                description:
+                    'Exige perfil ADMINISTRADOR e Idempotency-Key. Aceita valor decimal como string, bloqueia excedente e serializa alterações por conta a receber.',
+                operationId: 'registrarRecebimentoManual',
+                security: segurancaCookie,
+                parameters: [
+                    parametroOrganizacao,
+                    parametroAreaContexto,
+                    {
+                        name: 'mensalidadeId',
+                        in: 'path',
+                        required: true,
+                        schema: { type: 'string', format: 'uuid' },
+                    },
+                    {
+                        name: 'Idempotency-Key',
+                        in: 'header',
+                        required: true,
+                        schema: { type: 'string', minLength: 1, maxLength: 150 },
+                    },
+                ],
+                requestBody: corpoJson(referencia('RegistrarRecebimentoFinanceiro')),
+                responses: {
+                    '201': respostaJson(
+                        'Recebimento registrado.',
+                        referencia('RespostaRecebimentoFinanceiro'),
+                    ),
+                    '200': respostaJson(
+                        'Repetição idempotente.',
+                        referencia('RespostaRecebimentoFinanceiro'),
+                    ),
+                    ...erros('400', '401', '403', '404', '409'),
+                },
+            },
+        },
+        '/financeiro/resumo': {
+            get: {
+                tags: ['Financeiro'],
+                summary: 'Consultar resumo financeiro',
+                description:
+                    'Exige perfil ADMINISTRADOR. Os valores agregados ficam limitados à organização e à área atuais.',
+                operationId: 'obterResumoFinanceiro',
+                security: segurancaCookie,
+                parameters: [
+                    parametroOrganizacao,
+                    parametroAreaContexto,
+                    {
+                        name: 'inicio',
+                        in: 'query',
+                        required: true,
+                        schema: { type: 'string', format: 'date' },
+                    },
+                    {
+                        name: 'fim',
+                        in: 'query',
+                        required: true,
+                        schema: { type: 'string', format: 'date' },
+                    },
+                ],
+                responses: {
+                    '200': respostaJson(
+                        'Resumo do período.',
+                        referencia('RespostaResumoFinanceiro'),
+                    ),
+                    ...erros('400', '401', '403'),
                 },
             },
         },
@@ -1723,6 +2069,37 @@ const openApiDocument = {
                     data: referencia('EstadoVinculoUsuarioProfissional'),
                 },
             },
+            UsuarioVinculadoProfissional: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['id', 'nome'],
+                properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    nome: { type: 'string' },
+                },
+            },
+            ConsultaVinculoUsuarioProfissional: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['profissionalId', 'usuario', 'vinculoAtivo'],
+                properties: {
+                    profissionalId: { type: 'string', format: 'uuid' },
+                    usuario: {
+                        oneOf: [referencia('UsuarioVinculadoProfissional'), { type: 'null' }],
+                    },
+                    vinculoAtivo: { type: 'boolean' },
+                },
+            },
+            RespostaConsultaVinculoUsuarioProfissional: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['status', 'message', 'data'],
+                properties: {
+                    status: { type: 'string', const: 'success' },
+                    message: { type: 'string' },
+                    data: referencia('ConsultaVinculoUsuarioProfissional'),
+                },
+            },
 
             AreaVinculadaProfissional: {
                 type: 'object',
@@ -2063,6 +2440,335 @@ const openApiDocument = {
                     status: { type: 'string', const: 'success' },
                     message: { type: 'string' },
                     data: referencia('ClienteDetalhe'),
+                },
+            },
+            PlanoFinanceiro: {
+                type: 'object',
+                additionalProperties: false,
+                required: [
+                    'id',
+                    'nome',
+                    'descricao',
+                    'valor_base',
+                    'periodicidade',
+                    'area_negocio_id',
+                ],
+                properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    nome: { type: 'string' },
+                    descricao: { type: ['string', 'null'] },
+                    valor_base: { type: 'string', pattern: '^\\d+(?:\\.\\d{1,2})?$' },
+                    periodicidade: { type: 'string' },
+                    area_negocio_id: { type: ['string', 'null'], format: 'uuid' },
+                    ativo: { type: 'boolean' },
+                },
+            },
+            CriarPlanoFinanceiro: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['nome', 'valor_base'],
+                properties: {
+                    nome: { type: 'string', minLength: 1, maxLength: 150 },
+                    descricao: { type: 'string', minLength: 1, maxLength: 2000 },
+                    valor_base: {
+                        type: 'string',
+                        pattern: '^(?:0|[1-9]\\d{0,9})(?:\\.\\d{1,2})?$',
+                    },
+                },
+            },
+            RespostaPlanoFinanceiro: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['status', 'message', 'data'],
+                properties: {
+                    status: { type: 'string', const: 'success' },
+                    message: { type: 'string' },
+                    data: referencia('PlanoFinanceiro'),
+                },
+            },
+            RespostaPlanosFinanceiros: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['status', 'message', 'data'],
+                properties: {
+                    status: { type: 'string', const: 'success' },
+                    message: { type: 'string' },
+                    data: { type: 'array', items: referencia('PlanoFinanceiro') },
+                },
+            },
+            CriarAssinaturaFinanceira: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['cliente_id', 'plano_comercial_id', 'dia_vencimento', 'inicio_em'],
+                properties: {
+                    cliente_id: { type: 'string', format: 'uuid' },
+                    plano_comercial_id: { type: 'string', format: 'uuid' },
+                    dia_vencimento: { type: 'integer', minimum: 1, maximum: 31 },
+                    inicio_em: { type: 'string', format: 'date' },
+                },
+            },
+            AssinaturaFinanceira: {
+                type: 'object',
+                additionalProperties: false,
+                required: [
+                    'id',
+                    'cliente_id',
+                    'cliente_nome',
+                    'plano_comercial_id',
+                    'plano_nome',
+                    'valor_contratado',
+                    'desconto_recorrente',
+                    'dia_vencimento',
+                    'inicio_em',
+                    'fim_em',
+                    'status',
+                    'criado_em',
+                ],
+                properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    cliente_id: { type: 'string', format: 'uuid' },
+                    cliente_nome: { type: 'string' },
+                    plano_comercial_id: { type: 'string', format: 'uuid' },
+                    plano_nome: { type: 'string' },
+                    valor_contratado: { type: 'string' },
+                    desconto_recorrente: { type: 'string' },
+                    dia_vencimento: { type: 'integer' },
+                    inicio_em: { type: 'string', format: 'date' },
+                    fim_em: { type: ['string', 'null'], format: 'date' },
+                    status: { type: 'string', enum: ['ATIVA', 'CANCELADA', 'ENCERRADA'] },
+                    criado_em: { type: 'string', format: 'date-time' },
+                },
+            },
+            RespostaAssinaturaFinanceira: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['status', 'message', 'data'],
+                properties: {
+                    status: { type: 'string', const: 'success' },
+                    message: { type: 'string' },
+                    data: referencia('AssinaturaFinanceira'),
+                },
+            },
+            RespostaAssinaturasFinanceiras: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['status', 'message', 'data'],
+                properties: {
+                    status: { type: 'string', const: 'success' },
+                    message: { type: 'string' },
+                    data: {
+                        type: 'object',
+                        additionalProperties: false,
+                        required: ['items', 'pagination'],
+                        properties: {
+                            items: { type: 'array', items: referencia('AssinaturaFinanceira') },
+                            pagination: referencia('PaginacaoFinanceira'),
+                        },
+                    },
+                },
+            },
+            GerarMensalidadeFinanceira: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['competencia'],
+                properties: {
+                    competencia: { type: 'string', pattern: '^\\d{4}-(0[1-9]|1[0-2])$' },
+                },
+            },
+            MensalidadeFinanceira: {
+                type: 'object',
+                additionalProperties: false,
+                required: [
+                    'id',
+                    'conta_receber_id',
+                    'assinatura_id',
+                    'cliente_id',
+                    'cliente_nome',
+                    'competencia',
+                    'valor_base',
+                    'desconto_recorrente',
+                    'ajuste_competencia',
+                    'valor_final',
+                    'vencimento_em',
+                    'status_conta',
+                    'valor_pago',
+                    'saldo',
+                    'status',
+                ],
+                properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    conta_receber_id: { type: 'string', format: 'uuid' },
+                    assinatura_id: { type: 'string', format: 'uuid' },
+                    cliente_id: { type: 'string', format: 'uuid' },
+                    cliente_nome: { type: 'string' },
+                    competencia: { type: 'string', format: 'date' },
+                    valor_base: { type: 'string' },
+                    desconto_recorrente: { type: 'string' },
+                    ajuste_competencia: { type: 'string' },
+                    valor_final: { type: 'string' },
+                    vencimento_em: { type: 'string', format: 'date' },
+                    status_conta: { type: 'string' },
+                    valor_pago: { type: 'string' },
+                    saldo: { type: 'string' },
+                    status: {
+                        type: 'string',
+                        enum: ['PENDENTE', 'PARCIAL', 'VENCIDA', 'PAGA', 'CANCELADA'],
+                    },
+                    pagamentos: { type: 'array', items: referencia('PagamentoFinanceiro') },
+                },
+            },
+            PagamentoFinanceiro: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['id', 'valor', 'forma_pagamento', 'origem', 'pago_em', 'criado_em'],
+                properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    conta_receber_id: { type: 'string', format: 'uuid' },
+                    valor: { type: 'string' },
+                    forma_pagamento: { type: 'string' },
+                    origem: { type: 'string', const: 'MANUAL' },
+                    pago_em: {
+                        type: 'string',
+                        format: 'date-time',
+                        pattern:
+                            '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$',
+                        description:
+                            'ISO 8601 com fuso explícito e precisão de no máximo milissegundos.',
+                    },
+                    criado_em: { type: 'string', format: 'date-time' },
+                },
+            },
+            PaginacaoFinanceira: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['page', 'pageSize', 'total', 'pages'],
+                properties: {
+                    page: { type: 'integer' },
+                    pageSize: { type: 'integer' },
+                    total: { type: 'integer' },
+                    pages: { type: 'integer' },
+                },
+            },
+            RespostaMensalidadesFinanceiras: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['status', 'message', 'data'],
+                properties: {
+                    status: { type: 'string', const: 'success' },
+                    message: { type: 'string' },
+                    data: {
+                        type: 'object',
+                        additionalProperties: false,
+                        required: ['items', 'pagination'],
+                        properties: {
+                            items: { type: 'array', items: referencia('MensalidadeFinanceira') },
+                            pagination: referencia('PaginacaoFinanceira'),
+                        },
+                    },
+                },
+            },
+            RespostaMensalidadeFinanceira: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['status', 'message', 'data'],
+                properties: {
+                    status: { type: 'string', const: 'success' },
+                    message: { type: 'string' },
+                    data: referencia('MensalidadeFinanceira'),
+                },
+            },
+            RespostaGeracaoMensalidade: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['status', 'message', 'data'],
+                properties: {
+                    status: { type: 'string', const: 'success' },
+                    message: { type: 'string' },
+                    data: {
+                        type: 'object',
+                        additionalProperties: false,
+                        required: ['mensalidade', 'criada'],
+                        properties: {
+                            mensalidade: referencia('MensalidadeFinanceira'),
+                            criada: { type: 'boolean' },
+                        },
+                    },
+                },
+            },
+            RegistrarRecebimentoFinanceiro: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['valor', 'forma_pagamento', 'pago_em'],
+                properties: {
+                    valor: { type: 'string', pattern: '^(?:0|[1-9]\\d{0,9})(?:\\.\\d{1,2})?$' },
+                    forma_pagamento: { type: 'string', minLength: 1, maxLength: 30 },
+                    pago_em: {
+                        type: 'string',
+                        format: 'date-time',
+                        pattern:
+                            '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?(?:Z|[+-]\\d{2}:\\d{2})$',
+                        description:
+                            'ISO 8601 com fuso explícito e precisão de no máximo milissegundos.',
+                    },
+                },
+            },
+            RespostaRecebimentoFinanceiro: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['status', 'message', 'data'],
+                properties: {
+                    status: { type: 'string', const: 'success' },
+                    message: { type: 'string' },
+                    data: {
+                        type: 'object',
+                        additionalProperties: false,
+                        required: ['pagamento', 'mensalidade', 'repetido'],
+                        properties: {
+                            pagamento: referencia('PagamentoFinanceiro'),
+                            mensalidade: referencia('MensalidadeFinanceira'),
+                            repetido: { type: 'boolean' },
+                        },
+                    },
+                },
+            },
+            RespostaResumoFinanceiro: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['status', 'message', 'data'],
+                properties: {
+                    status: { type: 'string', const: 'success' },
+                    message: { type: 'string' },
+                    data: {
+                        type: 'object',
+                        additionalProperties: false,
+                        required: [
+                            'clientes_ativos',
+                            'profissionais_ativos',
+                            'mensalidades_em_aberto',
+                            'mensalidades_vencidas',
+                            'valor_em_aberto',
+                            'valor_vencido',
+                            'recebido_periodo',
+                            'periodo',
+                        ],
+                        properties: {
+                            clientes_ativos: { type: 'string' },
+                            profissionais_ativos: { type: 'string' },
+                            mensalidades_em_aberto: { type: 'string' },
+                            mensalidades_vencidas: { type: 'string' },
+                            valor_em_aberto: { type: 'string' },
+                            valor_vencido: { type: 'string' },
+                            recebido_periodo: { type: 'string' },
+                            periodo: {
+                                type: 'object',
+                                required: ['inicio', 'fim'],
+                                properties: {
+                                    inicio: { type: 'string', format: 'date' },
+                                    fim: { type: 'string', format: 'date' },
+                                },
+                            },
+                        },
+                    },
                 },
             },
         },

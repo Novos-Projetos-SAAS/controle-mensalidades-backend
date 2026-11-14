@@ -7,6 +7,7 @@ import {
     criarConfiguracaoBanco,
     type DatabaseEnvironment,
 } from './src/database/database.config.js';
+import { selecionarUrlMigrations } from './src/database/migration-url.js';
 
 const environment = env.NODE_ENV as DatabaseEnvironment;
 
@@ -36,12 +37,7 @@ if (environment === 'test') {
     }
 }
 
-const databaseUrl =
-    environment === 'test'
-        ? process.env.DATABASE_URL_TEST
-        : environment === 'production'
-          ? process.env.DATABASE_URL_MIGRATIONS
-          : process.env.DATABASE_URL_MIGRATIONS || process.env.DATABASE_URL;
+const databaseUrl = selecionarUrlMigrations(environment, process.env);
 
 if (environment === 'production' && !databaseUrl) {
     throw new Error('DATABASE_URL_MIGRATIONS é obrigatória para executar migrations em produção.');
@@ -77,6 +73,7 @@ const databaseConfig = databaseUrl
               user: obterVariavelObrigatoria('DB_USER'),
               password: obterVariavelObrigatoria('DB_PASSWORD'),
               database: obterVariavelObrigatoria('DB_NAME'),
+              connectionTimeoutMillis: env.DATABASE_CONNECTION_TIMEOUT_MS,
               ...((env.DB_SSL === 'true' || environment === 'production') && {
                   ssl: {
                       rejectUnauthorized: true,

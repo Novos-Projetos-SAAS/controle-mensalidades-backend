@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { env } from '../../src/configuration/env.js';
 import {
     criarConfiguracaoBanco,
     normalizarSslConnectionString,
 } from '../../src/database/database.config.js';
+import { selecionarUrlMigrations } from '../../src/database/migration-url.js';
 
 test('SSL PostgreSQL normaliza modos legados para verify-full e preserva parametros', () => {
     const connectionString =
@@ -37,9 +39,14 @@ test('configuração de produção exige verify-full sem combinar ssl object com
         'production',
         'postgresql://usuario:senha@db.exemplo.test/clinica?sslmode=require',
     );
-    const conexao = config.connection as { connectionString: string; ssl?: unknown };
+    const conexao = config.connection as {
+        connectionString: string;
+        connectionTimeoutMillis: number;
+        ssl?: unknown;
+    };
 
     assert.equal(new URL(conexao.connectionString).searchParams.get('sslmode'), 'verify-full');
+    assert.equal(conexao.connectionTimeoutMillis, env.DATABASE_CONNECTION_TIMEOUT_MS);
     assert.equal(conexao.ssl, undefined);
 });
 
@@ -52,5 +59,53 @@ test('erro de URL invalida nao inclui valor ou credenciais', () => {
             error instanceof Error &&
             error.message.includes('DATABASE_URL inválida') &&
             !error.message.includes(urlSecreta),
+    );
+});
+
+test('runtime usa DATABASE_URL e não seleciona a credencial de migrations', () => {
+    const anteriores = {
+        DATABASE_URL: process.env.DATABASE_URL,
+        DATABASE_URL_MIGRATIONS: process.env.DATABASE_URL_MIGRATIONS,
+    };
+
+    process.env.DATABASE_URL = 'postgresql://runtime:senha@runtime.test/app?sslmode=require';
+    process.env.DATABASE_URL_MIGRATIONS =
+        'postgresql://migrations:senha@migration.test/app?sslmode=require';
+
+    try {
+        const config = criarConfiguracaoBanco('production');
+        const connection = config.connection as { connectionString: string };
+
+        assert.equal(new URL(connection.connectionString).hostname, 'runtime.test');
+        assert.notEqual(new URL(connection.connectionString).hostname, 'migration.test');
+    } finally {
+        if (anteriores.DATABASE_URL === undefined) delete process.env.DATABASE_URL;
+        else process.env.DATABASE_URL = anteriores.DATABASE_URL;
+
+        if (anteriores.DATABASE_URL_MIGRATIONS === undefined)
+            delete process.env.DATABASE_URL_MIGRATIONS;
+        else process.env.DATABASE_URL_MIGRATIONS = anteriores.DATABASE_URL_MIGRATIONS;
+    }
+});
+
+test('knexfile seleciona URL de migrations distinta por ambiente e não cai para runtime em produção', () => {
+    const variaveis = {
+        DATABASE_URL: 'postgresql://runtime:senha@runtime.test/app',
+        DATABASE_URL_TEST: 'postgresql://test:senha@test.test/app_test',
+        DATABASE_URL_MIGRATIONS: 'postgresql://migrations:senha@migrations.test/app',
+    };
+
+    assert.equal(
+        selecionarUrlMigrations('production', variaveis),
+        variaveis.DATABASE_URL_MIGRATIONS,
+    );
+    assert.equal(selecionarUrlMigrations('test', variaveis), variaveis.DATABASE_URL_TEST);
+    assert.equal(
+        selecionarUrlMigrations('development', variaveis),
+        variaveis.DATABASE_URL_MIGRATIONS,
+    );
+    assert.equal(
+        selecionarUrlMigrations('production', { DATABASE_URL: variaveis.DATABASE_URL }),
+        undefined,
     );
 });
