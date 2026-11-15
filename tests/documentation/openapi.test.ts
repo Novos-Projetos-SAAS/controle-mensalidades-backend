@@ -62,6 +62,11 @@ const operacoesEsperadas: Record<string, string[]> = {
     '/financeiro/mensalidades/{mensalidadeId}': ['get'],
     '/financeiro/mensalidades/{mensalidadeId}/recebimentos': ['post'],
     '/financeiro/resumo': ['get'],
+    '/whatsapp/configuracoes': ['get', 'put'],
+    '/whatsapp/modelos': ['get'],
+    '/whatsapp/tarefas': ['get'],
+    '/whatsapp/mensagens': ['get'],
+    '/whatsapp/metricas': ['get'],
 };
 
 const rotasOrganizacionais = Object.keys(operacoesEsperadas).filter(
@@ -166,6 +171,10 @@ test('OpenAPI deve exigir os headers de contexto somente nas rotas correspondent
         '/financeiro/mensalidades/{mensalidadeId}',
         '/financeiro/mensalidades/{mensalidadeId}/recebimentos',
         '/financeiro/resumo',
+        '/whatsapp/modelos',
+        '/whatsapp/tarefas',
+        '/whatsapp/mensagens',
+        '/whatsapp/metricas',
     ]) {
         for (const operacao of Object.values(documento.paths[rota] ?? {})) {
             assert.equal(possuiParametro(operacao, 'x-area-negocio-id'), true, rota);
@@ -794,4 +803,35 @@ test('OpenAPI documenta headers, perfis e idempotência do financeiro', () => {
     assert.ok(schemaRecebimento);
     const propriedadesRecebimento = schemaRecebimento.properties as ObjetoJson;
     assert.equal((propriedadesRecebimento.valor as ObjetoJson).type, 'string');
+});
+
+test('OpenAPI documenta WhatsApp sem credenciais ou envio Meta habilitado', () => {
+    const rotasWhatsapp = [
+        '/whatsapp/configuracoes',
+        '/whatsapp/modelos',
+        '/whatsapp/tarefas',
+        '/whatsapp/mensagens',
+        '/whatsapp/metricas',
+    ];
+    for (const rota of rotasWhatsapp) {
+        for (const operacao of Object.values(documento.paths[rota] ?? {})) {
+            assert.deepEqual(operacao.security, [{ cookieAuth: [] }], rota);
+            assert.equal(possuiParametro(operacao, 'x-organizacao-id'), true, rota);
+            assert.match(String(operacao.description), /ADMINISTRADOR/);
+        }
+    }
+    for (const rota of [
+        '/whatsapp/modelos',
+        '/whatsapp/tarefas',
+        '/whatsapp/mensagens',
+        '/whatsapp/metricas',
+    ]) {
+        for (const operacao of Object.values(documento.paths[rota] ?? {})) {
+            assert.equal(possuiParametro(operacao, 'x-area-negocio-id'), true, rota);
+        }
+    }
+    const salvar = documento.paths['/whatsapp/configuracoes']?.put;
+    assert.ok(salvar);
+    assert.match(String(salvar.description), /pendente de autorização/);
+    assert.equal(documento.paths['/whatsapp/webhook'], undefined);
 });

@@ -389,6 +389,11 @@ const openApiDocument = {
             description:
                 'Planos, assinaturas, mensalidades e recebimentos manuais. Exige perfil ADMINISTRADOR.',
         },
+        {
+            name: 'WhatsApp',
+            description:
+                'Configuração pendente da Meta, propostas de templates, fila e histórico. Nenhum envio real está habilitado.',
+        },
     ],
     paths: {
         '/health': {
@@ -1509,6 +1514,165 @@ const openApiDocument = {
                         'Resumo do período.',
                         referencia('RespostaResumoFinanceiro'),
                     ),
+                    ...erros('400', '401', '403'),
+                },
+            },
+        },
+        '/whatsapp/configuracoes': {
+            get: {
+                tags: ['WhatsApp'],
+                summary: 'Listar remetentes da organização',
+                description:
+                    'Exige perfil ADMINISTRADOR. Tokens, credenciais e configuração criptografada nunca são retornados.',
+                operationId: 'listarConfiguracoesWhatsapp',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao],
+                responses: {
+                    '200': respostaJson('Configurações sem credenciais.', {
+                        type: 'array',
+                        items: { type: 'object' },
+                    }),
+                    ...erros('400', '401', '403'),
+                },
+            },
+            put: {
+                tags: ['WhatsApp'],
+                summary: 'Salvar metadados do remetente',
+                description:
+                    'Exige perfil ADMINISTRADOR. A gravação sempre deixa a integração inativa e pendente de autorização/verificação Meta.',
+                operationId: 'salvarConfiguracaoWhatsapp',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao],
+                requestBody: corpoJson({
+                    type: 'object',
+                    additionalProperties: false,
+                    required: [
+                        'whatsappBusinessAccountId',
+                        'phoneNumberId',
+                        'numeroExibido',
+                        'nomeNegocio',
+                    ],
+                    properties: {
+                        areaNegocioId: { type: ['string', 'null'], format: 'uuid' },
+                        whatsappBusinessAccountId: { type: 'string', minLength: 1, maxLength: 100 },
+                        phoneNumberId: { type: 'string', minLength: 1, maxLength: 100 },
+                        numeroExibido: { type: 'string', minLength: 1, maxLength: 30 },
+                        nomeNegocio: { type: 'string', minLength: 1, maxLength: 150 },
+                    },
+                }),
+                responses: {
+                    '200': respostaJson('Configuração pendente de autorização.', {
+                        type: 'object',
+                    }),
+                    ...erros('400', '401', '403', '404'),
+                },
+            },
+        },
+        '/whatsapp/modelos': {
+            get: {
+                tags: ['WhatsApp'],
+                summary: 'Listar propostas internas de cobrança',
+                description:
+                    'Exige perfil ADMINISTRADOR e área. As três propostas não estão submetidas nem aprovadas pela Meta.',
+                operationId: 'listarPropostasTemplatesWhatsapp',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao, parametroAreaContexto],
+                responses: {
+                    '200': respostaJson('Propostas internas sem envio.', {
+                        type: 'array',
+                        items: { type: 'object' },
+                    }),
+                    ...erros('400', '401', '403'),
+                },
+            },
+        },
+        '/whatsapp/tarefas': {
+            get: {
+                tags: ['WhatsApp'],
+                summary: 'Listar lembretes da área',
+                description: 'Exige perfil ADMINISTRADOR. A lista não dispara o worker.',
+                operationId: 'listarTarefasWhatsapp',
+                security: segurancaCookie,
+                parameters: [
+                    parametroOrganizacao,
+                    parametroAreaContexto,
+                    {
+                        name: 'page',
+                        in: 'query',
+                        schema: { type: 'integer', minimum: 1, default: 1 },
+                    },
+                    {
+                        name: 'pageSize',
+                        in: 'query',
+                        schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+                    },
+                    {
+                        name: 'status',
+                        in: 'query',
+                        schema: {
+                            type: 'string',
+                            enum: [
+                                'PENDENTE',
+                                'PROCESSANDO',
+                                'ENVIADA',
+                                'ENTREGUE',
+                                'FALHOU',
+                                'CANCELADA',
+                                'RESULTADO_INCERTO',
+                            ],
+                        },
+                    },
+                ],
+                responses: {
+                    '200': respostaJson('Lembretes paginados.', { type: 'object' }),
+                    ...erros('400', '401', '403'),
+                },
+            },
+        },
+        '/whatsapp/mensagens': {
+            get: {
+                tags: ['WhatsApp'],
+                summary: 'Consultar histórico da área',
+                description:
+                    'Exige perfil ADMINISTRADOR. Conteúdo, destinatário e erros brutos não são expostos.',
+                operationId: 'listarMensagensWhatsapp',
+                security: segurancaCookie,
+                parameters: [
+                    parametroOrganizacao,
+                    parametroAreaContexto,
+                    {
+                        name: 'page',
+                        in: 'query',
+                        schema: { type: 'integer', minimum: 1, default: 1 },
+                    },
+                    {
+                        name: 'pageSize',
+                        in: 'query',
+                        schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+                    },
+                    {
+                        name: 'status',
+                        in: 'query',
+                        schema: { type: 'string' },
+                    },
+                ],
+                responses: {
+                    '200': respostaJson('Histórico paginado.', { type: 'object' }),
+                    ...erros('400', '401', '403'),
+                },
+            },
+        },
+        '/whatsapp/metricas': {
+            get: {
+                tags: ['WhatsApp'],
+                summary: 'Consultar volume de mensagens',
+                description:
+                    'Exige perfil ADMINISTRADOR. Informa contagens; estimativa de custo fica nula até integração e tarifa verificadas.',
+                operationId: 'obterMetricasWhatsapp',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao, parametroAreaContexto],
+                responses: {
+                    '200': respostaJson('Volume e estados das mensagens.', { type: 'object' }),
                     ...erros('400', '401', '403'),
                 },
             },

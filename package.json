@@ -9,6 +9,7 @@
         "start": "node dist/server.js",
         "typecheck": "tsc --noEmit && tsc -p tests/tsconfig.json --noEmit",
         "test": "node --env-file=.env.test --import tsx --test tests/**/*.test.ts",
+        "test:whatsapp": "node --env-file=.env.test --import tsx --test tests/modules/whatsapp/*.test.ts",
         "lint": "eslint src tests",
         "lint:fix": "eslint src tests --fix",
         "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
