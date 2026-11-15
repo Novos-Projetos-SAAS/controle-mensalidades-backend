@@ -46,6 +46,40 @@ const parametroServicoPath = { $ref: '#/components/parameters/ServicoIdPath' };
 const parametroProfissionalPath = { $ref: '#/components/parameters/ProfissionalIdPath' };
 const parametroAgendamentoPath = { $ref: '#/components/parameters/AgendamentoIdPath' };
 
+const respostaStatusOnboardingWhatsapp: OpenApiSchema = {
+    type: 'object',
+    required: ['correlacaoId', 'status', 'requisitosPendentes', 'prontaParaEnvio'],
+    properties: {
+        correlacaoId: { type: 'string', format: 'uuid' },
+        status: { type: 'string' },
+        modoOnboarding: { type: ['string', 'null'], enum: ['CLOUD_API', 'COEXISTENCIA', null] },
+        erro: { type: ['string', 'null'] },
+        expiraEm: { type: 'string', format: 'date-time' },
+        concluidoEm: { type: ['string', 'null'], format: 'date-time' },
+        integracaoId: { type: 'string', format: 'uuid' },
+        integracao: {
+            type: ['object', 'null'],
+            properties: {
+                metaBusinessId: { type: ['string', 'null'] },
+                whatsappAccountId: { type: ['string', 'null'] },
+                messagingAccountId: { type: ['string', 'null'] },
+                wabaId: { type: ['string', 'null'] },
+                phoneNumberId: { type: ['string', 'null'] },
+                numeroExibido: { type: ['string', 'null'] },
+                nomeNegocio: { type: ['string', 'null'] },
+                autorizacao: { type: 'string' },
+                registroNumero: { type: 'string' },
+                webhook: { type: 'string' },
+                templates: { type: 'string' },
+                conexao: { type: 'string' },
+                ativa: { type: 'boolean', const: false },
+            },
+        },
+        requisitosPendentes: { type: 'array', items: { type: 'string' } },
+        prontaParaEnvio: { type: 'boolean', const: false },
+    },
+};
+
 const camposCliente = {
     id: {
         type: 'string',
@@ -1515,6 +1549,246 @@ const openApiDocument = {
                         referencia('RespostaResumoFinanceiro'),
                     ),
                     ...erros('400', '401', '403'),
+                },
+            },
+        },
+        '/whatsapp/onboarding/configuracao-sdk': {
+            get: {
+                tags: ['WhatsApp'],
+                summary: 'Obter configuração pública do Embedded Signup',
+                description:
+                    'Exige sessão, organização, área e perfil ADMINISTRADOR. Retorna somente App ID, Configuration ID, versão Graph e opções públicas do SDK; nunca retorna App Secret.',
+                operationId: 'obterConfiguracaoSdkOnboardingWhatsapp',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao, parametroAreaContexto],
+                responses: {
+                    '200': respostaJson(
+                        'Configuração pública para inicializar o SDK Facebook Login for Business.',
+                        {
+                            type: 'object',
+                            properties: {
+                                appId: { type: 'string' },
+                                configurationId: { type: 'string' },
+                                graphApiVersion: { type: 'string' },
+                                permissions: { type: 'array', items: { type: 'string' } },
+                                responseType: { type: 'string', enum: ['code'] },
+                                overrideDefaultResponseType: { type: 'boolean' },
+                                sessionInfoVersion: { type: 'integer' },
+                                coexistenceEnabled: { type: 'boolean' },
+                                featureType: {
+                                    type: 'string',
+                                    enum: ['whatsapp_business_app_onboarding'],
+                                },
+                            },
+                        },
+                    ),
+                    ...erros('400', '401', '403', '503'),
+                },
+            },
+        },
+        '/whatsapp/onboarding/iniciar': {
+            post: {
+                tags: ['WhatsApp'],
+                summary: 'Iniciar Embedded Signup',
+                description:
+                    'Exige sessão, organização, área e perfil ADMINISTRADOR. Cria correlação de uso único com state CSRF de curta duração, vinculada ao usuário e ao escopo autenticados.',
+                operationId: 'iniciarOnboardingWhatsapp',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao, parametroAreaContexto],
+                responses: {
+                    '201': respostaJson('Correlação, state e configuração pública para o SDK.', {
+                        type: 'object',
+                        properties: {
+                            correlacaoId: { type: 'string', format: 'uuid' },
+                            state: { type: 'string' },
+                            expiraEm: { type: 'string', format: 'date-time' },
+                            sdk: { type: 'object' },
+                        },
+                    }),
+                    ...erros('400', '401', '403', '503'),
+                },
+            },
+        },
+        '/whatsapp/onboarding/concluir': {
+            post: {
+                tags: ['WhatsApp'],
+                summary: 'Concluir autorização Embedded Signup',
+                description:
+                    'Exige sessão, organização, área e perfil ADMINISTRADOR. Recebe callback autorizado ou cancelado; o backend troca o código pela Graph API, verifica os ativos e cifra o token. IDs do cliente são conferidos com os ativos retornados pela Meta.',
+                operationId: 'concluirOnboardingWhatsapp',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao, parametroAreaContexto],
+                requestBody: corpoJson({
+                    oneOf: [
+                        {
+                            type: 'object',
+                            additionalProperties: false,
+                            required: ['resultado', 'correlacaoId', 'state'],
+                            properties: {
+                                resultado: { type: 'string', const: 'CANCELADO' },
+                                correlacaoId: { type: 'string', format: 'uuid' },
+                                state: { type: 'string', minLength: 32, maxLength: 256 },
+                            },
+                        },
+                        {
+                            type: 'object',
+                            additionalProperties: false,
+                            required: [
+                                'resultado',
+                                'correlacaoId',
+                                'state',
+                                'codigo',
+                                'wabaId',
+                                'phoneNumberId',
+                                'modoOnboarding',
+                            ],
+                            properties: {
+                                resultado: { type: 'string', const: 'AUTORIZADO' },
+                                correlacaoId: { type: 'string', format: 'uuid' },
+                                state: { type: 'string', minLength: 32, maxLength: 256 },
+                                codigo: { type: 'string', minLength: 16, maxLength: 4096 },
+                                wabaId: { type: 'string', minLength: 1, maxLength: 100 },
+                                phoneNumberId: { type: 'string', minLength: 1, maxLength: 100 },
+                                businessId: { type: 'string', maxLength: 100 },
+                                modoOnboarding: {
+                                    type: 'string',
+                                    enum: ['CLOUD_API', 'COEXISTENCIA'],
+                                },
+                                registrationPin: { type: 'string', pattern: '^\\d{6}$' },
+                            },
+                        },
+                    ],
+                }),
+                responses: {
+                    '200': respostaJson(
+                        'Autorização confirmada e etapas de provisionamento concluídas.',
+                        respostaStatusOnboardingWhatsapp,
+                    ),
+                    '202': respostaJson(
+                        'Autorização persistida; PIN, registro, webhooks ou templates ainda estão pendentes.',
+                        respostaStatusOnboardingWhatsapp,
+                    ),
+                    ...erros('400', '401', '403', '404', '409', '410', '503'),
+                },
+            },
+        },
+        '/whatsapp/onboarding/{correlacaoId}/continuar': {
+            post: {
+                tags: ['WhatsApp'],
+                summary: 'Continuar provisionamento do número',
+                description:
+                    'Exige sessão, organização, área e perfil ADMINISTRADOR. Conclui o registro Cloud API (quando necessário) e a assinatura da Messaging Account nos webhooks; não ativa envio.',
+                operationId: 'continuarProvisionamentoOnboardingWhatsapp',
+                security: segurancaCookie,
+                parameters: [
+                    parametroOrganizacao,
+                    parametroAreaContexto,
+                    {
+                        name: 'correlacaoId',
+                        in: 'path',
+                        required: true,
+                        schema: { type: 'string', format: 'uuid' },
+                    },
+                ],
+                requestBody: corpoJson({
+                    type: 'object',
+                    additionalProperties: false,
+                    properties: { registrationPin: { type: 'string', pattern: '^\\d{6}$' } },
+                }),
+                responses: {
+                    '200': respostaJson(
+                        'Provisionamento concluído; templates e ativação operacional continuam separados.',
+                        respostaStatusOnboardingWhatsapp,
+                    ),
+                    '202': respostaJson(
+                        'Ação pendente, como informar PIN ou corrigir permissão Meta.',
+                        respostaStatusOnboardingWhatsapp,
+                    ),
+                    ...erros('400', '401', '403', '404', '409'),
+                },
+            },
+        },
+        '/whatsapp/onboarding/{correlacaoId}': {
+            get: {
+                tags: ['WhatsApp'],
+                summary: 'Consultar onboarding e requisitos pendentes',
+                description:
+                    'Exige sessão, organização, área e perfil ADMINISTRADOR. A resposta indica separadamente autorização, registro, webhook, templates e ativação; nunca inclui token ou App Secret.',
+                operationId: 'obterStatusOnboardingWhatsapp',
+                security: segurancaCookie,
+                parameters: [
+                    parametroOrganizacao,
+                    parametroAreaContexto,
+                    {
+                        name: 'correlacaoId',
+                        in: 'path',
+                        required: true,
+                        schema: { type: 'string', format: 'uuid' },
+                    },
+                ],
+                responses: {
+                    '200': respostaJson(
+                        'Estado público e requisitos pendentes.',
+                        respostaStatusOnboardingWhatsapp,
+                    ),
+                    ...erros('400', '401', '403', '404'),
+                },
+            },
+        },
+        '/whatsapp/webhook': {
+            get: {
+                tags: ['WhatsApp'],
+                summary: 'Verificar callback Meta',
+                description:
+                    'Rota pública de handshake. Retorna hub.challenge somente quando hub.verify_token corresponde ao token configurado.',
+                operationId: 'verificarWebhookWhatsappMeta',
+                parameters: [
+                    { name: 'hub.mode', in: 'query', required: true, schema: { type: 'string' } },
+                    {
+                        name: 'hub.verify_token',
+                        in: 'query',
+                        required: true,
+                        schema: { type: 'string' },
+                    },
+                    {
+                        name: 'hub.challenge',
+                        in: 'query',
+                        required: true,
+                        schema: { type: 'string' },
+                    },
+                ],
+                responses: {
+                    '200': { description: 'Challenge em texto puro.' },
+                    '403': { description: 'Token de verificação inválido.' },
+                },
+            },
+            post: {
+                tags: ['WhatsApp'],
+                summary: 'Receber eventos assinados da Meta',
+                description:
+                    'Rota pública. Valida X-Hub-Signature-256 no corpo bruto e resolve organização/área pela combinação registrada de entry.id (Messaging Account) e metadata.phone_number_id; não aceita IDs de escopo do cliente.',
+                operationId: 'receberWebhookWhatsappMeta',
+                parameters: [
+                    {
+                        name: 'X-Hub-Signature-256',
+                        in: 'header',
+                        required: true,
+                        schema: { type: 'string', pattern: '^sha256=[a-fA-F0-9]{64}$' },
+                    },
+                ],
+                requestBody: corpoJson({ type: 'object', additionalProperties: true }),
+                responses: {
+                    '200': respostaJson(
+                        'Evento recebido; duplicatas e eventos desconhecidos são ignorados.',
+                        {
+                            type: 'object',
+                            properties: {
+                                recebido: { type: 'boolean' },
+                                eventos: { type: 'integer' },
+                            },
+                        },
+                    ),
+                    ...erros('400', '401', '503'),
                 },
             },
         },

@@ -1,6 +1,8 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 export type EventoStatusMeta = {
+    phoneNumberId: string;
+    messagingAccountId: string;
     identificadorExterno: string;
     status: 'sent' | 'delivered' | 'read' | 'failed';
     ocorridoEm: string;
@@ -26,15 +28,12 @@ export function verificarHandshakeMeta(
     tokenConfigurado: string | undefined,
     challenge: string | undefined,
 ): string | null {
-    if (
-        mode !== 'subscribe' ||
-        !tokenConfigurado ||
-        !tokenRecebido ||
-        !challenge ||
-        tokenRecebido !== tokenConfigurado
-    ) {
+    if (mode !== 'subscribe' || !tokenConfigurado || !tokenRecebido || !challenge) {
         return null;
     }
+    const recebido = createHash('sha256').update(tokenRecebido).digest();
+    const configurado = createHash('sha256').update(tokenConfigurado).digest();
+    if (!timingSafeEqual(recebido, configurado)) return null;
     return challenge;
 }
 
@@ -42,6 +41,8 @@ export function criarChaveEventoMeta(evento: EventoStatusMeta): string {
     return createHash('sha256')
         .update(
             [
+                evento.phoneNumberId,
+                evento.messagingAccountId,
                 evento.identificadorExterno,
                 evento.status,
                 evento.ocorridoEm,
@@ -66,12 +67,24 @@ export function extrairEventosStatusMeta(corpoBruto: Buffer): EventoStatusMeta[]
     const eventos: EventoStatusMeta[] = [];
     for (const entrada of entradas) {
         if (!entrada || typeof entrada !== 'object' || !('changes' in entrada)) continue;
+        const messagingAccountId =
+            'id' in entrada && typeof (entrada as { id?: unknown }).id === 'string'
+                ? (entrada as { id: string }).id.trim()
+                : '';
         const alteracoes = (entrada as { changes?: unknown }).changes;
         if (!Array.isArray(alteracoes)) continue;
         for (const alteracao of alteracoes) {
             if (!alteracao || typeof alteracao !== 'object' || !('value' in alteracao)) continue;
             const valor = (alteracao as { value?: unknown }).value;
             if (!valor || typeof valor !== 'object' || !('statuses' in valor)) continue;
+            const metadata = (valor as { metadata?: unknown }).metadata;
+            const phoneNumberId =
+                metadata &&
+                typeof metadata === 'object' &&
+                'phone_number_id' in metadata &&
+                typeof (metadata as { phone_number_id?: unknown }).phone_number_id === 'string'
+                    ? (metadata as { phone_number_id: string }).phone_number_id.trim()
+                    : '';
             const statuses = (valor as { statuses?: unknown }).statuses;
             if (!Array.isArray(statuses)) continue;
 
@@ -88,6 +101,10 @@ export function extrairEventosStatusMeta(corpoBruto: Buffer): EventoStatusMeta[]
                         : '';
                 const timestamp = typeof item.timestamp === 'string' ? Number(item.timestamp) : NaN;
                 if (
+                    !phoneNumberId ||
+                    phoneNumberId.length > 100 ||
+                    !messagingAccountId ||
+                    messagingAccountId.length > 100 ||
                     !id ||
                     !/^\+[1-9]\d{7,14}$/.test(destinatario) ||
                     !Number.isSafeInteger(timestamp) ||
@@ -96,6 +113,8 @@ export function extrairEventosStatusMeta(corpoBruto: Buffer): EventoStatusMeta[]
                     throw new Error('EVENTO_META_INVALIDO');
                 }
                 eventos.push({
+                    phoneNumberId,
+                    messagingAccountId,
                     identificadorExterno: id,
                     status: item.status as EventoStatusMeta['status'],
                     ocorridoEm: new Date(timestamp * 1000).toISOString(),

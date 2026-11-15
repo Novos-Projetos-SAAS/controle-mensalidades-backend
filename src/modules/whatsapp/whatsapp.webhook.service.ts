@@ -7,8 +7,6 @@ import {
 } from './whatsapp.webhook.js';
 
 export async function processarEventoStatusMetaVerificado(input: {
-    organizacaoId: string;
-    areaNegocioId: string;
     corpoBruto: Buffer;
     assinatura: string | undefined;
     appSecret: string | undefined;
@@ -29,9 +27,7 @@ export async function processarEventoStatusMetaVerificado(input: {
     }
     return Promise.all(
         eventos.map((evento) =>
-            whatsappRepository.registrarEventoStatusMeta(
-                input.organizacaoId,
-                input.areaNegocioId,
+            whatsappRepository.registrarEventoStatusMetaPorNumero(
                 criarChaveEventoMeta(evento),
                 evento,
             ),

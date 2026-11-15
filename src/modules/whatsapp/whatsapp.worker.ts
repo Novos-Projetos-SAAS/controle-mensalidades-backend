@@ -288,6 +288,9 @@ async function processarUmaTarefa(
             nomeTemplateMeta: templateFinal.nomeTemplateMeta,
             idioma: templateFinal.idiomaMeta,
             parametros,
+            ...(templateFinal.esquemaParametros
+                ? { variaveisTemplate: templateFinal.esquemaParametros }
+                : {}),
             idempotencyKey: chaveIdempotencia,
         });
 

@@ -72,6 +72,7 @@ export type EnviarTemplateWhatsappInput = {
     nomeTemplateMeta: string;
     idioma: string;
     parametros: ParametrosTemplateCobranca;
+    variaveisTemplate?: readonly (keyof ParametrosTemplateCobranca)[];
     idempotencyKey: string;
 };
 
@@ -84,7 +85,7 @@ export type ResultadoEnvioWhatsapp = {
 };
 
 export interface WhatsAppProvider {
-    readonly mode: 'SIMULADO' | 'META_DESABILITADO';
+    readonly mode: 'SIMULADO' | 'META' | 'META_DESABILITADO';
     validarConfiguracao(
         configuracao: ConfiguracaoMetaWhatsapp,
     ): Promise<{ valido: boolean; motivo?: string }>;
@@ -92,6 +93,12 @@ export interface WhatsAppProvider {
         configuracao: ConfiguracaoMetaWhatsapp,
     ): Promise<Array<{ nome: string; idioma: string; status: string; categoria: string | null }>>;
     enviarTemplate(input: EnviarTemplateWhatsappInput): Promise<ResultadoEnvioWhatsapp>;
+}
+
+export interface ResolverCredencialMetaWhatsapp {
+    obterCredenciaisMeta(
+        configuracao: ConfiguracaoMetaWhatsapp,
+    ): Promise<{ accessToken: string; expiresAt?: string | null } | null>;
 }
 
 export type ConfiguracaoPublicaWhatsapp = {

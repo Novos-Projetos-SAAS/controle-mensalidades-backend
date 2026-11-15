@@ -8,6 +8,10 @@ import request from 'supertest';
 import app from '../../../src/app.js';
 import { env } from '../../../src/configuration/env.js';
 import connection from '../../../src/database/connection.js';
+import AppError from '../../../src/shared/errors/AppError.js';
+import whatsappRepository from '../../../src/modules/whatsapp/whatsapp.repository.js';
+import whatsappOnboardingRepository from '../../../src/modules/whatsapp/whatsapp.onboarding.repository.js';
+import { criarCofreCredenciaisWhatsapp } from '../../../src/modules/whatsapp/whatsapp.credentials.js';
 
 const ids = {
     organizacao: crypto.randomUUID(),
@@ -28,6 +32,9 @@ function cabecalhos(usuarioId: string, organizacaoId = ids.organizacao) {
 }
 
 async function limpar() {
+    await connection('integracoes_whatsapp_onboarding')
+        .whereIn('organizacao_id', [ids.organizacao, ids.outraOrganizacao])
+        .del();
     await connection('registros_auditoria')
         .whereIn('organizacao_id', [ids.organizacao, ids.outraOrganizacao])
         .del();
@@ -135,6 +142,64 @@ test('admin registra metadados sem ativar Meta nem expor referências a segredos
     assert.equal(auditoria.dados_contexto.segredo_incluido, false);
 });
 
+test('credencial Meta fica cifrada e só pode ser recuperada no escopo da integração', async () => {
+    const integracao = await connection('integracoes_whatsapp')
+        .where({ organizacao_id: ids.organizacao, area_negocio_id: ids.area })
+        .first();
+    assert.ok(integracao);
+
+    const chaveAnterior = process.env.WHATSAPP_CREDENTIALS_ENCRYPTION_KEY;
+    const chaveTeste = Buffer.alloc(32, 31).toString('base64');
+    process.env.WHATSAPP_CREDENTIALS_ENCRYPTION_KEY = chaveTeste;
+    const token = 'token-privado-fixture-com-tamanho-suficiente';
+    try {
+        const retorno = await whatsappRepository.armazenarCredenciaisMeta(
+            ids.organizacao,
+            integracao.id,
+            ids.admin,
+            { accessToken: token },
+            criarCofreCredenciaisWhatsapp(chaveTeste),
+        );
+        assert.equal('credencial_referencia' in retorno, false);
+        assert.equal(JSON.stringify(retorno).includes(token), false);
+
+        const persistida = await connection('integracoes_whatsapp')
+            .where({ id: integracao.id })
+            .first();
+        assert.ok(persistida.credenciais_meta_criptografadas);
+        assert.equal(persistida.credenciais_meta_criptografadas.includes(token), false);
+        assert.equal(persistida.configuracao_criptografada, null);
+
+        const contexto = {
+            organizacaoId: ids.organizacao,
+            areaNegocioId: ids.area,
+            whatsappBusinessAccountId: 'waba-fixture',
+            phoneNumberId: 'phone-fixture',
+            numeroExibido: '+5511999999999',
+            nomeNegocio: 'Orbe Teste',
+            credencial: { referencia: `db-aesgcm:v1:${integracao.id}` },
+        };
+        assert.deepEqual(await whatsappRepository.obterCredenciaisMeta(contexto), {
+            accessToken: token,
+        });
+        assert.equal(
+            await whatsappRepository.obterCredenciaisMeta({
+                ...contexto,
+                organizacaoId: ids.outraOrganizacao,
+            }),
+            null,
+        );
+        const auditada = await connection('registros_auditoria')
+            .where({ recurso_id: integracao.id, acao: 'WHATSAPP.CREDENCIAL_META_ARMAZENADA' })
+            .first();
+        assert.ok(auditada);
+        assert.equal(JSON.stringify(auditada.dados_contexto).includes(token), false);
+    } finally {
+        if (chaveAnterior === undefined) delete process.env.WHATSAPP_CREDENTIALS_ENCRYPTION_KEY;
+        else process.env.WHATSAPP_CREDENTIALS_ENCRYPTION_KEY = chaveAnterior;
+    }
+});
+
 test('rejeita campos de credencial, área de outra organização e perfil sem permissão', async () => {
     const comCredencial = await request(app)
         .put('/api/v1/whatsapp/configuracoes')
@@ -183,4 +248,194 @@ test('templates listados permanecem não submetidos e não aprovados', async () 
                 !modelo.aprovadoMeta && modelo.situacaoMeta === 'NAO_SUBMETIDO' && !modelo.ativo,
         ),
     );
+});
+
+test('repositório vincula state ao escopo, consome código uma vez e bloqueia ativos de outra organização', async () => {
+    const agora = new Date();
+    const expiraEm = new Date(agora.valueOf() + 60_000);
+    const novoOnboarding = (organizacaoId: string, areaNegocioId: string, validade = expiraEm) =>
+        whatsappOnboardingRepository.iniciar({
+            organizacaoId,
+            areaNegocioId,
+            usuarioId: ids.admin,
+            stateHash: crypto.createHash('sha256').update(crypto.randomUUID()).digest('hex'),
+            expiraEm: validade,
+        });
+
+    const expirado = await novoOnboarding(
+        ids.organizacao,
+        ids.area,
+        new Date(agora.valueOf() - 1_000),
+    );
+    await assert.rejects(
+        whatsappOnboardingRepository.consumirCallback({
+            correlacaoId: expirado.correlacaoId,
+            organizacaoId: ids.organizacao,
+            areaNegocioId: ids.area,
+            usuarioId: ids.admin,
+            stateHash: await connection('integracoes_whatsapp_onboarding')
+                .select('state_hash')
+                .where({ id: expirado.correlacaoId })
+                .first()
+                .then((row) => row.state_hash as string),
+            cancelado: false,
+            codigoHash: 'a'.repeat(64),
+            agora,
+        }),
+        (erro: unknown) => erro instanceof AppError && erro.statusCode === 410,
+    );
+    assert.equal(
+        (
+            await connection('integracoes_whatsapp_onboarding')
+                .select('status')
+                .where({ id: expirado.correlacaoId })
+                .first()
+        )?.status,
+        'EXPIRADO',
+    );
+
+    const foraDoEscopo = await novoOnboarding(ids.organizacao, ids.area);
+    const hashForaDoEscopo = await connection('integracoes_whatsapp_onboarding')
+        .select('state_hash')
+        .where({ id: foraDoEscopo.correlacaoId })
+        .first()
+        .then((row) => row.state_hash as string);
+    await assert.rejects(
+        whatsappOnboardingRepository.consumirCallback({
+            correlacaoId: foraDoEscopo.correlacaoId,
+            organizacaoId: ids.outraOrganizacao,
+            areaNegocioId: ids.areaOutra,
+            usuarioId: ids.admin,
+            stateHash: hashForaDoEscopo,
+            cancelado: false,
+            codigoHash: 'b'.repeat(64),
+            agora,
+        }),
+        (erro: unknown) => erro instanceof AppError && erro.statusCode === 404,
+    );
+
+    const primeiroCodigo = await novoOnboarding(ids.organizacao, ids.area);
+    const segundoCodigo = await novoOnboarding(ids.organizacao, ids.area);
+    const hashesCodigo = await connection('integracoes_whatsapp_onboarding')
+        .select('id', 'state_hash')
+        .whereIn('id', [primeiroCodigo.correlacaoId, segundoCodigo.correlacaoId]);
+    const hashPorId = new Map(
+        hashesCodigo.map((row) => [row.id as string, row.state_hash as string]),
+    );
+    const codigoHash = crypto.createHash('sha256').update('codigo-unico-fixture').digest('hex');
+    for (const item of [primeiroCodigo, segundoCodigo]) {
+        if (item.correlacaoId === segundoCodigo.correlacaoId) {
+            await assert.rejects(
+                whatsappOnboardingRepository.consumirCallback({
+                    correlacaoId: item.correlacaoId,
+                    organizacaoId: ids.organizacao,
+                    areaNegocioId: ids.area,
+                    usuarioId: ids.admin,
+                    stateHash: hashPorId.get(item.correlacaoId)!,
+                    codigoHash,
+                    cancelado: false,
+                    agora,
+                }),
+                (erro: unknown) =>
+                    erro instanceof AppError && erro.code === 'CODIGO_AUTORIZACAO_REUTILIZADO',
+            );
+        } else {
+            await whatsappOnboardingRepository.consumirCallback({
+                correlacaoId: item.correlacaoId,
+                organizacaoId: ids.organizacao,
+                areaNegocioId: ids.area,
+                usuarioId: ids.admin,
+                stateHash: hashPorId.get(item.correlacaoId)!,
+                codigoHash,
+                cancelado: false,
+                agora,
+            });
+        }
+    }
+
+    const chaveAnterior = process.env.WHATSAPP_CREDENTIALS_ENCRYPTION_KEY;
+    const chaveTeste = Buffer.alloc(32, 43).toString('base64');
+    process.env.WHATSAPP_CREDENTIALS_ENCRYPTION_KEY = chaveTeste;
+    try {
+        const primeiroAtivo = await novoOnboarding(ids.organizacao, ids.area);
+        const statePrimeiro = await connection('integracoes_whatsapp_onboarding')
+            .select('state_hash')
+            .where({ id: primeiroAtivo.correlacaoId })
+            .first()
+            .then((row) => row.state_hash as string);
+        await whatsappOnboardingRepository.consumirCallback({
+            correlacaoId: primeiroAtivo.correlacaoId,
+            organizacaoId: ids.organizacao,
+            areaNegocioId: ids.area,
+            usuarioId: ids.admin,
+            stateHash: statePrimeiro,
+            codigoHash: crypto.createHash('sha256').update('codigo-ativo-fixture').digest('hex'),
+            cancelado: false,
+            agora,
+        });
+        const ativos = {
+            messagingAccountId: 'messaging-account-shared-fixture',
+            whatsappAccountId: null,
+            metaBusinessId: 'meta-business-fixture',
+            phoneNumberId: 'phone-shared-fixture',
+            numeroExibido: '+5511999999999',
+            nomeNegocio: 'Orbe Fixture',
+        };
+        await whatsappOnboardingRepository.registrarAutorizacao({
+            escopo: {
+                correlacaoId: primeiroAtivo.correlacaoId,
+                organizacaoId: ids.organizacao,
+                areaNegocioId: ids.area,
+            },
+            usuarioId: ids.admin,
+            modo: 'CLOUD_API',
+            ativos,
+            credenciais: { accessToken: 'token-meta-comprido-suficiente-fixture', expiresAt: null },
+        });
+
+        const segundoAtivo = await novoOnboarding(ids.outraOrganizacao, ids.areaOutra);
+        const stateSegundo = await connection('integracoes_whatsapp_onboarding')
+            .select('state_hash')
+            .where({ id: segundoAtivo.correlacaoId })
+            .first()
+            .then((row) => row.state_hash as string);
+        await whatsappOnboardingRepository.consumirCallback({
+            correlacaoId: segundoAtivo.correlacaoId,
+            organizacaoId: ids.outraOrganizacao,
+            areaNegocioId: ids.areaOutra,
+            usuarioId: ids.admin,
+            stateHash: stateSegundo,
+            codigoHash: crypto.createHash('sha256').update('codigo-outro-fixture').digest('hex'),
+            cancelado: false,
+            agora,
+        });
+        const autorizarAtivo = (overrides: Partial<typeof ativos>) =>
+            whatsappOnboardingRepository.registrarAutorizacao({
+                escopo: {
+                    correlacaoId: segundoAtivo.correlacaoId,
+                    organizacaoId: ids.outraOrganizacao,
+                    areaNegocioId: ids.areaOutra,
+                },
+                usuarioId: ids.admin,
+                modo: 'CLOUD_API',
+                ativos: { ...ativos, ...overrides },
+                credenciais: {
+                    accessToken: 'token-meta-comprido-suficiente-fixture',
+                    expiresAt: null,
+                },
+            });
+        await assert.rejects(
+            autorizarAtivo({ phoneNumberId: 'phone-distinto-fixture' }),
+            (erro: unknown) =>
+                erro instanceof AppError && erro.code === 'ATIVO_META_VINCULADO_OUTRA_ORGANIZACAO',
+        );
+        await assert.rejects(
+            autorizarAtivo({ messagingAccountId: 'messaging-account-distinto-fixture' }),
+            (erro: unknown) =>
+                erro instanceof AppError && erro.code === 'ATIVO_META_VINCULADO_OUTRA_ORGANIZACAO',
+        );
+    } finally {
+        if (chaveAnterior === undefined) delete process.env.WHATSAPP_CREDENTIALS_ENCRYPTION_KEY;
+        else process.env.WHATSAPP_CREDENTIALS_ENCRYPTION_KEY = chaveAnterior;
+    }
 });

@@ -6,9 +6,18 @@ import connection from '../../database/connection.js';
 import AppError from '../../shared/errors/AppError.js';
 import type { ConfiguracaoWhatsappInput, ListagemWhatsappInput } from './whatsapp.validator.js';
 import type { ArmazenamentoAgendadorWhatsapp, TarefaLembreteNova } from './whatsapp.scheduler.js';
-import type { ConfiguracaoPublicaWhatsapp } from './whatsapp.contracts.js';
+import type {
+    ConfiguracaoPublicaWhatsapp,
+    ParametrosTemplateCobranca,
+} from './whatsapp.contracts.js';
 import type { ConfiguracaoMetaWhatsapp } from './whatsapp.contracts.js';
+import type { ResolverCredencialMetaWhatsapp } from './whatsapp.contracts.js';
 import type { EventoStatusMeta } from './whatsapp.webhook.js';
+import {
+    criarCofreCredenciaisWhatsapp,
+    type ContextoCofreWhatsapp,
+    type CredenciaisAcessoMeta,
+} from './whatsapp.credentials.js';
 
 type ExecutorBanco = Knex | Knex.Transaction;
 
@@ -52,6 +61,7 @@ export type ContextoProcessamentoWhatsapp = {
         nomeTemplateMeta: string;
         idiomaMeta: string;
         categoriaMeta: string | null;
+        esquemaParametros: Array<keyof ParametrosTemplateCobranca> | null;
     } | null;
 };
 
@@ -75,7 +85,7 @@ function selecionarConfiguracaoPublica(query: Knex.QueryBuilder) {
     );
 }
 
-class WhatsappRepository implements ArmazenamentoAgendadorWhatsapp {
+class WhatsappRepository implements ArmazenamentoAgendadorWhatsapp, ResolverCredencialMetaWhatsapp {
     async listarConfiguracoes(organizacaoId: string): Promise<ConfiguracaoPublicaWhatsapp[]> {
         return (await selecionarConfiguracaoPublica(connection('integracoes_whatsapp'))
             .where({ organizacao_id: organizacaoId, provedor: 'META_CLOUD_API' })
@@ -179,6 +189,124 @@ class WhatsappRepository implements ArmazenamentoAgendadorWhatsapp {
             });
             return resultado as ConfiguracaoPublicaWhatsapp;
         });
+    }
+
+    async armazenarCredenciaisMeta(
+        organizacaoId: string,
+        integracaoId: string,
+        usuarioId: string,
+        credenciais: CredenciaisAcessoMeta,
+        cofre = criarCofreCredenciaisWhatsapp(),
+        auditoria: { ip?: string; userAgent?: string } = {},
+    ): Promise<ConfiguracaoPublicaWhatsapp> {
+        return connection.transaction(async (transaction) => {
+            const integracao = await transaction('integracoes_whatsapp')
+                .select('id', 'organizacao_id', 'area_negocio_id')
+                .where({
+                    id: integracaoId,
+                    organizacao_id: organizacaoId,
+                    provedor: 'META_CLOUD_API',
+                })
+                .whereNull('deletado_em')
+                .forUpdate()
+                .first();
+            if (!integracao) {
+                throw new AppError(
+                    'Configuração WhatsApp não encontrada.',
+                    404,
+                    'CONFIGURACAO_WHATSAPP_NAO_ENCONTRADA',
+                );
+            }
+
+            const contextoCofre: ContextoCofreWhatsapp = {
+                integracaoId,
+                organizacaoId,
+                areaNegocioId: integracao.area_negocio_id,
+            };
+            const credencialReferencia = `db-aesgcm:v1:${integracaoId}`;
+            await transaction('integracoes_whatsapp')
+                .where({ id: integracaoId })
+                .update({
+                    credenciais_meta_criptografadas: cofre.criptografar(credenciais, contextoCofre),
+                    credencial_referencia: credencialReferencia,
+                    ativo: false,
+                    situacao_conexao: 'PENDENTE_AUTORIZACAO',
+                    situacao_autorizacao: 'PENDENTE_VALIDACAO',
+                    motivo_indisponibilidade: 'VALIDACAO_META_PENDENTE',
+                    atualizado_em: transaction.fn.now(),
+                });
+
+            await transaction('registros_auditoria').insert({
+                organizacao_id: organizacaoId,
+                usuario_id: usuarioId,
+                area_negocio_id: integracao.area_negocio_id,
+                acao: 'WHATSAPP.CREDENCIAL_META_ARMAZENADA',
+                recurso: 'integracoes_whatsapp',
+                recurso_id: integracaoId,
+                dados_contexto: {
+                    referencia: credencialReferencia,
+                    cifra: 'AES-256-GCM',
+                    segredo_incluido: true,
+                },
+                ip: auditoria.ip ?? null,
+                user_agent: auditoria.userAgent ?? null,
+            });
+
+            return (await selecionarConfiguracaoPublica(transaction('integracoes_whatsapp'))
+                .where({ id: integracaoId })
+                .first()) as ConfiguracaoPublicaWhatsapp;
+        });
+    }
+
+    async obterCredenciaisMeta(
+        configuracao: ConfiguracaoMetaWhatsapp,
+    ): Promise<CredenciaisAcessoMeta | null> {
+        if (!configuracao.credencial?.referencia) return null;
+        const consulta = connection('integracoes_whatsapp')
+            .select(
+                'id',
+                'organizacao_id',
+                'area_negocio_id',
+                'credencial_referencia',
+                'credenciais_meta_criptografadas',
+            )
+            .where({
+                id: configuracao.credencial.referencia.replace('db-aesgcm:v1:', ''),
+                organizacao_id: configuracao.organizacaoId,
+                provedor: 'META_CLOUD_API',
+            })
+            .whereNull('deletado_em');
+        if (configuracao.areaNegocioId) {
+            consulta.andWhere('area_negocio_id', configuracao.areaNegocioId);
+        } else {
+            consulta.whereNull('area_negocio_id');
+        }
+        const integracao = await consulta.first();
+        if (
+            !integracao ||
+            integracao.credencial_referencia !== configuracao.credencial.referencia ||
+            !integracao.credenciais_meta_criptografadas
+        ) {
+            return null;
+        }
+
+        const contextoCofre: ContextoCofreWhatsapp = {
+            integracaoId: integracao.id,
+            organizacaoId: integracao.organizacao_id,
+            areaNegocioId: integracao.area_negocio_id,
+        };
+        try {
+            return criarCofreCredenciaisWhatsapp().descriptografar(
+                integracao.credenciais_meta_criptografadas,
+                contextoCofre,
+            );
+        } catch {
+            throw new AppError(
+                'Credencial WhatsApp indisponível.',
+                503,
+                'CREDENCIAL_META_INDISPONIVEL',
+            );
+        }
     }
 
     async listarTarefas(
@@ -435,7 +563,14 @@ class WhatsappRepository implements ArmazenamentoAgendadorWhatsapp {
 
         const chaveTemplate = this.chaveTemplate(atual.lembrete_tipo);
         const template = await connection('modelos_mensagem')
-            .select('nome', 'conteudo', 'nome_template_meta', 'idioma_meta', 'categoria_meta')
+            .select(
+                'nome',
+                'conteudo',
+                'nome_template_meta',
+                'idioma_meta',
+                'categoria_meta',
+                'esquema_parametros',
+            )
             .where({ organizacao_id: atual.organizacao_id, chave: chaveTemplate, ativo: true })
             .where('status_meta', 'APROVADO')
             .whereNotNull('nome_template_meta')
@@ -485,6 +620,7 @@ class WhatsappRepository implements ArmazenamentoAgendadorWhatsapp {
                       nomeTemplateMeta: template.nome_template_meta,
                       idiomaMeta: template.idioma_meta,
                       categoriaMeta: template.categoria_meta,
+                      esquemaParametros: this.esquemaParametrosSeguro(template.esquema_parametros),
                   }
                 : null,
         };
@@ -616,17 +752,92 @@ class WhatsappRepository implements ArmazenamentoAgendadorWhatsapp {
         });
     }
 
-    async registrarEventoStatusMeta(
-        organizacaoId: string,
-        areaNegocioId: string,
-        chaveEvento: string,
-        evento: EventoStatusMeta,
-    ) {
+    async registrarEventoStatusMetaPorNumero(chaveEvento: string, evento: EventoStatusMeta) {
         return connection.transaction(async (transaction) => {
+            const organizacoes = await transaction('integracoes_whatsapp')
+                .distinct('organizacao_id')
+                .where({
+                    phone_number_id: evento.phoneNumberId,
+                    provedor: 'META_CLOUD_API',
+                })
+                .andWhere((query) =>
+                    query
+                        .where('messaging_account_id', evento.messagingAccountId)
+                        .orWhere((legado) =>
+                            legado
+                                .whereNull('messaging_account_id')
+                                .andWhere(
+                                    'whatsapp_business_account_id',
+                                    evento.messagingAccountId,
+                                ),
+                        ),
+                )
+                .whereNull('deletado_em')
+                .limit(2);
+            // Um Phone Number ID só pode mapear para um único escopo; ambiguidades são ignoradas.
+            if (organizacoes.length !== 1)
+                return { ignorado: true, duplicado: false, aplicado: false };
+            const organizacaoId = organizacoes[0]?.organizacao_id;
+            if (!organizacaoId) return { ignorado: true, duplicado: false, aplicado: false };
+
+            const consultaMensagem = transaction('mensagens')
+                .select(
+                    'id',
+                    'organizacao_id',
+                    'area_negocio_id',
+                    'status',
+                    'tarefa_mensagem_id',
+                    'destinatario',
+                )
+                .where({
+                    organizacao_id: organizacaoId,
+                    identificador_externo: evento.identificadorExterno,
+                    provedor: 'META_CLOUD_API',
+                    canal: 'WHATSAPP',
+                })
+                .whereNull('deletado_em');
+            const mensagem = await consultaMensagem.forUpdate().first();
+            if (
+                !mensagem ||
+                String(mensagem.destinatario).replace(/\D/g, '') !==
+                    evento.destinatario.replace(/\D/g, '')
+            ) {
+                return { ignorado: true, duplicado: false, aplicado: false };
+            }
+            const remetenteRegistrado = await transaction('integracoes_whatsapp')
+                .select('id')
+                .where({
+                    organizacao_id: organizacaoId,
+                    phone_number_id: evento.phoneNumberId,
+                    provedor: 'META_CLOUD_API',
+                })
+                .andWhere((query) =>
+                    query
+                        .where('messaging_account_id', evento.messagingAccountId)
+                        .orWhere((legado) =>
+                            legado
+                                .whereNull('messaging_account_id')
+                                .andWhere(
+                                    'whatsapp_business_account_id',
+                                    evento.messagingAccountId,
+                                ),
+                        ),
+                )
+                .whereNull('deletado_em')
+                .where((query) =>
+                    query
+                        .whereNull('area_negocio_id')
+                        .orWhere('area_negocio_id', mensagem.area_negocio_id),
+                )
+                .first();
+            if (!remetenteRegistrado) {
+                return { ignorado: true, duplicado: false, aplicado: false };
+            }
+
             const inseridos = await transaction('webhook_eventos_whatsapp')
                 .insert({
                     organizacao_id: organizacaoId,
-                    area_negocio_id: areaNegocioId,
+                    area_negocio_id: mensagem.area_negocio_id,
                     chave_evento: chaveEvento,
                     identificador_externo: evento.identificadorExterno,
                     status: evento.status,
@@ -636,26 +847,6 @@ class WhatsappRepository implements ArmazenamentoAgendadorWhatsapp {
                 .ignore()
                 .returning('id');
             if (!inseridos.length) return { duplicado: true, aplicado: false };
-
-            const mensagem = await transaction('mensagens')
-                .select('id', 'status', 'tarefa_mensagem_id', 'destinatario')
-                .where({
-                    organizacao_id: organizacaoId,
-                    area_negocio_id: areaNegocioId,
-                    identificador_externo: evento.identificadorExterno,
-                    provedor: 'META_CLOUD_API',
-                    canal: 'WHATSAPP',
-                })
-                .whereNull('deletado_em')
-                .forUpdate()
-                .first();
-            if (!mensagem) return { duplicado: false, aplicado: false };
-            if (
-                String(mensagem.destinatario).replace(/\D/g, '') !==
-                evento.destinatario.replace(/\D/g, '')
-            ) {
-                return { duplicado: false, aplicado: false };
-            }
 
             const estadoAtual = String(mensagem.status).toUpperCase();
             if (estadoAtual === 'FALHOU' || estadoAtual === 'LIDA') {
@@ -690,16 +881,26 @@ class WhatsappRepository implements ArmazenamentoAgendadorWhatsapp {
                 });
 
             if (mensagem.tarefa_mensagem_id && evento.status !== 'sent') {
-                await transaction('tarefas_mensagem')
-                    .where({ id: mensagem.tarefa_mensagem_id, organizacao_id: organizacaoId })
-                    .whereNull('deletado_em')
-                    .update({
-                        status: evento.status === 'failed' ? 'FALHOU' : 'ENTREGUE',
-                        ...(evento.status === 'failed'
-                            ? { codigo_resultado: 'META_STATUS_FAILED' }
-                            : {}),
-                        atualizado_em: transaction.fn.now(),
-                    });
+                const tarefaAtualizavel = transaction('tarefas_mensagem')
+                    .where({
+                        id: mensagem.tarefa_mensagem_id,
+                        organizacao_id: organizacaoId,
+                        area_negocio_id: mensagem.area_negocio_id,
+                    })
+                    .whereNull('deletado_em');
+                tarefaAtualizavel.whereIn(
+                    'status',
+                    evento.status === 'failed'
+                        ? ['ENVIADA', 'RESULTADO_INCERTO']
+                        : ['ENVIADA', 'ENTREGUE', 'RESULTADO_INCERTO'],
+                );
+                await tarefaAtualizavel.update({
+                    status: evento.status === 'failed' ? 'FALHOU' : 'ENTREGUE',
+                    ...(evento.status === 'failed'
+                        ? { codigo_resultado: 'META_STATUS_FAILED' }
+                        : {}),
+                    atualizado_em: transaction.fn.now(),
+                });
             }
             return { duplicado: false, aplicado: true };
         });
@@ -709,6 +910,29 @@ class WhatsappRepository implements ArmazenamentoAgendadorWhatsapp {
         if (lembreteTipo === 'D-1') return 'cobranca_vespera';
         if (lembreteTipo === 'D0') return 'cobranca_vencimento';
         return 'cobranca_atraso_3d';
+    }
+
+    private esquemaParametrosSeguro(
+        valor: unknown,
+    ): Array<keyof ParametrosTemplateCobranca> | null {
+        const permitidos: Array<keyof ParametrosTemplateCobranca> = [
+            'cliente',
+            'empresa',
+            'competencia',
+            'valor',
+            'saldo',
+            'vencimento',
+            'link_pagamento',
+        ];
+        if (!Array.isArray(valor) || valor.length === 0) return null;
+        if (
+            !valor.every((item): item is keyof ParametrosTemplateCobranca =>
+                permitidos.includes(item),
+            )
+        ) {
+            return null;
+        }
+        return valor;
     }
 }
 

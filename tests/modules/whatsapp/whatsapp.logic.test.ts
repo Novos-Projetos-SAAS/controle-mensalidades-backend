@@ -5,7 +5,9 @@ import test from 'node:test';
 import {
     SimulatedWhatsAppProvider,
     MetaCloudApiDisabledProvider,
+    MetaCloudApiProvider,
 } from '../../../src/modules/whatsapp/whatsapp.adapter.js';
+import { criarCofreCredenciaisWhatsapp } from '../../../src/modules/whatsapp/whatsapp.credentials.js';
 import type {
     MensalidadeParaAgendar,
     TarefaLembreteNova,
@@ -162,6 +164,8 @@ test('verifica assinatura e handshake Meta sem expor webhook público', () => {
     assert.equal(verificarHandshakeMeta('subscribe', 'incorreto', 'token', 'challenge'), null);
 
     const evento: EventoStatusMeta = {
+        phoneNumberId: 'phone-fixture',
+        messagingAccountId: 'messaging-fixture',
         identificadorExterno: 'wamid.fixture',
         status: 'delivered',
         ocorridoEm: '2026-02-05T12:00:00.000Z',
@@ -172,6 +176,166 @@ test('verifica assinatura e handshake Meta sem expor webhook público', () => {
         criarChaveEventoMeta(evento),
         criarChaveEventoMeta({ ...evento, status: 'read' }),
     );
+});
+
+test('cofre cifra credenciais por organização/área e impede troca de contexto', () => {
+    const cofre = criarCofreCredenciaisWhatsapp(Buffer.alloc(32, 17).toString('base64'));
+    const credenciais = { accessToken: 'token-de-teste-com-tamanho-suficiente' };
+    const contexto = {
+        integracaoId: 'integracao-a',
+        organizacaoId: 'org-a',
+        areaNegocioId: 'area-a',
+    };
+    const cifra = cofre.criptografar(credenciais, contexto);
+    assert.equal(cifra.includes(credenciais.accessToken), false);
+    assert.deepEqual(cofre.descriptografar(cifra, contexto), credenciais);
+    assert.throws(() => cofre.descriptografar(cifra, { ...contexto, organizacaoId: 'org-b' }));
+    assert.throws(() => criarCofreCredenciaisWhatsapp('chave-invalida'));
+});
+
+test('adapter Meta usa fake injetado, não chama sem credencial e nunca repete timeout', async () => {
+    const configuracao = {
+        organizacaoId: 'org-fixture',
+        areaNegocioId: 'area-fixture',
+        whatsappBusinessAccountId: 'waba-fixture',
+        phoneNumberId: 'phone-fixture',
+        numeroExibido: '+5511999999999',
+        nomeNegocio: 'Orbe Teste',
+        credencial: { referencia: 'db-aesgcm:v1:integracao-fixture' },
+    };
+    const input = {
+        configuracao,
+        destinatarioE164: '+5511888888888',
+        nomeTemplateMeta: 'cobranca_aprovada',
+        idioma: 'pt_BR',
+        parametros: {
+            cliente: 'Ana',
+            empresa: 'Orbe',
+            competencia: '2026-02',
+            valor: 'R$ 10,00',
+            saldo: 'R$ 10,00',
+            vencimento: '05/02/2026',
+            link_pagamento: 'https://checkout.example.test',
+        },
+        variaveisTemplate: ['cliente', 'valor'] as const,
+        idempotencyKey: 'fixture-idempotency-key',
+    };
+    let chamadas = 0;
+    let requisicao: RequestInit | undefined;
+    const provider = new MetaCloudApiProvider(
+        {
+            async obterCredenciaisMeta() {
+                return { accessToken: 'token-de-teste-com-tamanho-suficiente' };
+            },
+        },
+        {
+            realSendEnabled: true,
+            graphApiVersion: 'v27.0',
+            fetcher: async (_url, init) => {
+                chamadas += 1;
+                requisicao = init;
+                return new Response(JSON.stringify({ messages: [{ id: 'wamid.fixture' }] }), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                });
+            },
+        },
+    );
+    const sucesso = await provider.enviarTemplate(input);
+    assert.equal(provider.mode, 'META');
+    assert.equal(sucesso.identificadorExterno, 'wamid.fixture');
+    assert.equal(chamadas, 1);
+    assert.equal(
+        (requisicao?.headers as Record<string, string>).Authorization,
+        'Bearer token-de-teste-com-tamanho-suficiente',
+    );
+    const corpo = JSON.parse(String(requisicao?.body)) as {
+        template: { components: Array<{ parameters: Array<{ text: string }> }> };
+    };
+    assert.deepEqual(
+        corpo.template.components[0]?.parameters.map((item) => item.text),
+        ['Ana', 'R$ 10,00'],
+    );
+
+    const erroApi = new MetaCloudApiProvider(
+        {
+            async obterCredenciaisMeta() {
+                return { accessToken: 'token-de-teste-com-tamanho-suficiente' };
+            },
+        },
+        {
+            realSendEnabled: true,
+            fetcher: async () =>
+                new Response(
+                    JSON.stringify({ error: { code: 132000, message: 'token-deve-ser-oculto' } }),
+                    {
+                        status: 400,
+                        headers: { 'Content-Type': 'application/json' },
+                    },
+                ),
+        },
+    );
+    const falhaApi = await erroApi.enviarTemplate(input);
+    assert.equal(falhaApi.status, 'FALHOU');
+    assert.equal(falhaApi.codigoErro, 'META_API_132000');
+    assert.equal(JSON.stringify(falhaApi).includes('token-deve-ser-oculto'), false);
+
+    let chamadasDesabilitado = 0;
+    const desabilitado = new MetaCloudApiProvider(
+        {
+            async obterCredenciaisMeta() {
+                return { accessToken: 'token-de-teste-com-tamanho-suficiente' };
+            },
+        },
+        {
+            realSendEnabled: false,
+            fetcher: async () => {
+                chamadasDesabilitado += 1;
+                throw new Error('não esperado');
+            },
+        },
+    );
+    assert.equal(
+        (await desabilitado.enviarTemplate(input)).codigoErro,
+        'ENVIO_REAL_META_DESABILITADO',
+    );
+    assert.equal(chamadasDesabilitado, 0);
+
+    const semCredencial = new MetaCloudApiProvider(
+        {
+            async obterCredenciaisMeta() {
+                return null;
+            },
+        },
+        {
+            realSendEnabled: true,
+            fetcher: async () => {
+                chamadas += 1;
+                throw new Error('não esperado');
+            },
+        },
+    );
+    const semToken = await semCredencial.enviarTemplate(input);
+    assert.equal(semToken.codigoErro, 'CREDENCIAL_META_INDISPONIVEL');
+    assert.equal(chamadas, 1);
+
+    let tentativasTimeout = 0;
+    const timeout = new MetaCloudApiProvider(
+        {
+            async obterCredenciaisMeta() {
+                return { accessToken: 'token-de-teste-com-tamanho-suficiente' };
+            },
+        },
+        {
+            realSendEnabled: true,
+            fetcher: async () => {
+                tentativasTimeout += 1;
+                throw new Error('timeout');
+            },
+        },
+    );
+    assert.equal((await timeout.enviarTemplate(input)).status, 'RESULTADO_INCERTO');
+    assert.equal(tentativasTimeout, 1);
 });
 
 test('adapter simulado não faz envio real e provider Meta permanece desabilitado', async () => {

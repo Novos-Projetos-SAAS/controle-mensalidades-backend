@@ -52,6 +52,40 @@ const envSchema = z
         JWT_SECRET_TEST: z.string().min(1).optional(),
 
         JWT_EXPIRES_IN: z.enum(['1h', '8h', '12h', '1d', '7d', '30d']).default('8h'),
+
+        WHATSAPP_META_REAL_SEND_ENABLED: z.enum(['true', 'false']).default('false'),
+
+        WHATSAPP_META_COEXISTENCE_ENABLED: z.enum(['true', 'false']).default('false'),
+
+        WHATSAPP_META_APP_ID: z.preprocess(
+            (valor) => (valor === '' ? undefined : valor),
+            z.string().min(1).optional(),
+        ),
+
+        WHATSAPP_META_CONFIGURATION_ID: z.preprocess(
+            (valor) => (valor === '' ? undefined : valor),
+            z.string().min(1).optional(),
+        ),
+
+        WHATSAPP_META_GRAPH_API_VERSION: z
+            .string()
+            .regex(/^v\d+\.\d+$/)
+            .default('v27.0'),
+
+        WHATSAPP_META_WEBHOOK_VERIFY_TOKEN: z.preprocess(
+            (valor) => (valor === '' ? undefined : valor),
+            z.string().min(1).optional(),
+        ),
+
+        WHATSAPP_META_APP_SECRET: z.preprocess(
+            (valor) => (valor === '' ? undefined : valor),
+            z.string().min(1).optional(),
+        ),
+
+        WHATSAPP_CREDENTIALS_ENCRYPTION_KEY: z.preprocess(
+            (valor) => (valor === '' ? undefined : valor),
+            z.string().optional(),
+        ),
     })
     .superRefine((valores, contexto) => {
         if (valores.CLINICAL_DB_LOCK_TIMEOUT_MS >= valores.CLINICAL_DB_STATEMENT_TIMEOUT_MS) {

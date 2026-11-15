@@ -62,6 +62,12 @@ const operacoesEsperadas: Record<string, string[]> = {
     '/financeiro/mensalidades/{mensalidadeId}': ['get'],
     '/financeiro/mensalidades/{mensalidadeId}/recebimentos': ['post'],
     '/financeiro/resumo': ['get'],
+    '/whatsapp/onboarding/configuracao-sdk': ['get'],
+    '/whatsapp/onboarding/iniciar': ['post'],
+    '/whatsapp/onboarding/concluir': ['post'],
+    '/whatsapp/onboarding/{correlacaoId}/continuar': ['post'],
+    '/whatsapp/onboarding/{correlacaoId}': ['get'],
+    '/whatsapp/webhook': ['get', 'post'],
     '/whatsapp/configuracoes': ['get', 'put'],
     '/whatsapp/modelos': ['get'],
     '/whatsapp/tarefas': ['get'],
@@ -70,7 +76,7 @@ const operacoesEsperadas: Record<string, string[]> = {
 };
 
 const rotasOrganizacionais = Object.keys(operacoesEsperadas).filter(
-    (rota) => !rota.startsWith('/auth') && rota !== '/health',
+    (rota) => !rota.startsWith('/auth') && rota !== '/health' && rota !== '/whatsapp/webhook',
 );
 
 function resolverParametro(parametro: ObjetoJson) {
@@ -821,6 +827,11 @@ test('OpenAPI documenta WhatsApp sem credenciais ou envio Meta habilitado', () =
         }
     }
     for (const rota of [
+        '/whatsapp/onboarding/configuracao-sdk',
+        '/whatsapp/onboarding/iniciar',
+        '/whatsapp/onboarding/concluir',
+        '/whatsapp/onboarding/{correlacaoId}/continuar',
+        '/whatsapp/onboarding/{correlacaoId}',
         '/whatsapp/modelos',
         '/whatsapp/tarefas',
         '/whatsapp/mensagens',
@@ -833,5 +844,36 @@ test('OpenAPI documenta WhatsApp sem credenciais ou envio Meta habilitado', () =
     const salvar = documento.paths['/whatsapp/configuracoes']?.put;
     assert.ok(salvar);
     assert.match(String(salvar.description), /pendente de autorização/);
-    assert.equal(documento.paths['/whatsapp/webhook'], undefined);
+    assert.equal(documento.paths['/whatsapp/webhook']?.get?.security, undefined);
+    assert.equal(documento.paths['/whatsapp/webhook']?.post?.security, undefined);
+    assert.equal(
+        possuiParametro(documento.paths['/whatsapp/webhook']!.post!, 'X-Hub-Signature-256'),
+        true,
+    );
+    assert.equal(
+        possuiParametro(documento.paths['/whatsapp/webhook']!.post!, 'x-organizacao-id'),
+        false,
+    );
+    assert.equal(
+        possuiParametro(documento.paths['/whatsapp/webhook']!.post!, 'x-area-negocio-id'),
+        false,
+    );
+    for (const rota of [
+        '/whatsapp/onboarding/configuracao-sdk',
+        '/whatsapp/onboarding/iniciar',
+        '/whatsapp/onboarding/concluir',
+        '/whatsapp/onboarding/{correlacaoId}/continuar',
+        '/whatsapp/onboarding/{correlacaoId}',
+    ]) {
+        for (const operacao of Object.values(documento.paths[rota] ?? {})) {
+            assert.deepEqual(operacao.security, [{ cookieAuth: [] }], rota);
+            assert.match(String(operacao.description), /ADMINISTRADOR/);
+            assert.equal(possuiParametro(operacao, 'x-organizacao-id'), true, rota);
+            assert.equal(possuiParametro(operacao, 'x-area-negocio-id'), true, rota);
+        }
+    }
+    assert.match(
+        String(documento.paths['/whatsapp/onboarding/concluir']?.post?.description),
+        /troca o código pela Graph API/,
+    );
 });

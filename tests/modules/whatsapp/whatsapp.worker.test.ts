@@ -19,6 +19,7 @@ import { processarEventoStatusMetaVerificado } from '../../../src/modules/whatsa
 
 const ids = {
     organizacao: crypto.randomUUID(),
+    outraOrganizacao: crypto.randomUUID(),
     area: crypto.randomUUID(),
     cliente: crypto.randomUUID(),
     plano: crypto.randomUUID(),
@@ -27,6 +28,8 @@ const ids = {
 const agora = new Date('2026-12-01T15:00:00.000Z');
 
 async function limpar() {
+    await connection('integracoes_whatsapp').where({ organizacao_id: ids.outraOrganizacao }).del();
+    await connection('organizacoes').where({ id: ids.outraOrganizacao }).del();
     await connection('webhook_eventos_whatsapp').where({ organizacao_id: ids.organizacao }).del();
     await connection('mensagens').where({ organizacao_id: ids.organizacao }).del();
     await connection('tarefas_mensagem').where({ organizacao_id: ids.organizacao }).del();
@@ -50,6 +53,11 @@ before(async () => {
     await connection('organizacoes').insert({
         id: ids.organizacao,
         nome: `Worker WhatsApp ${ids.organizacao}`,
+        ativo: true,
+    });
+    await connection('organizacoes').insert({
+        id: ids.outraOrganizacao,
+        nome: `Worker WhatsApp outra ${ids.outraOrganizacao}`,
         ativo: true,
     });
     await connection('areas_negocio').insert({
@@ -330,9 +338,11 @@ test('worker simulado é concorrente, revalida pagamento/consentimento e control
         JSON.stringify({
             entry: [
                 {
+                    id: 'waba-test-fixture',
                     changes: [
                         {
                             value: {
+                                metadata: { phone_number_id: 'phone-test-fixture' },
                                 statuses: [
                                     {
                                         id: externalId,
@@ -350,16 +360,74 @@ test('worker simulado é concorrente, revalida pagamento/consentimento e control
     );
     const assinaturaWebhook = `sha256=${crypto.createHmac('sha256', secretWebhook).update(payloadEntregue).digest('hex')}`;
     const argumentosWebhook = {
-        organizacaoId: ids.organizacao,
-        areaNegocioId: ids.area,
         corpoBruto: payloadEntregue,
         assinatura: assinaturaWebhook,
         appSecret: secretWebhook,
     };
+
+    // Se o mesmo número estiver registrado em outra organização, o roteamento é ambíguo e não grava.
+    await connection('integracoes_whatsapp').insert({
+        organizacao_id: ids.outraOrganizacao,
+        provedor: 'META_CLOUD_API',
+        whatsapp_business_account_id: 'waba-test-fixture',
+        phone_number_id: 'phone-test-fixture',
+        ativo: true,
+    });
+    const organizacaoAmbigua = await processarEventoStatusMetaVerificado(argumentosWebhook);
+    assert.equal(organizacaoAmbigua[0]?.ignorado, true);
+    assert.equal(
+        await connection('webhook_eventos_whatsapp')
+            .where({ organizacao_id: ids.organizacao })
+            .count('* as total')
+            .first()
+            .then((row) => Number(row?.total)),
+        0,
+    );
+    await connection('integracoes_whatsapp').where({ organizacao_id: ids.outraOrganizacao }).del();
+
+    const corpoDestinatarioDivergente = Buffer.from(
+        payloadEntregue.toString('utf8').replace('5511999999999', '5511000000000'),
+    );
+    const destinatarioDivergente = await processarEventoStatusMetaVerificado({
+        ...argumentosWebhook,
+        corpoBruto: corpoDestinatarioDivergente,
+        assinatura: `sha256=${crypto.createHmac('sha256', secretWebhook).update(corpoDestinatarioDivergente).digest('hex')}`,
+    });
+    assert.equal(destinatarioDivergente[0]?.ignorado, true);
+    assert.equal(
+        await connection('webhook_eventos_whatsapp')
+            .where({ organizacao_id: ids.organizacao })
+            .count('* as total')
+            .first()
+            .then((row) => Number(row?.total)),
+        0,
+    );
+
     const primeiroEvento = await processarEventoStatusMetaVerificado(argumentosWebhook);
     const eventoRepetido = await processarEventoStatusMetaVerificado(argumentosWebhook);
     assert.equal(primeiroEvento[0]?.aplicado, true);
     assert.equal(eventoRepetido[0]?.duplicado, true);
+
+    const payloadStatusAntigo = Buffer.from(
+        payloadEntregue.toString('utf8').replace('delivered', 'sent'),
+    );
+    const statusAntigo = await processarEventoStatusMetaVerificado({
+        ...argumentosWebhook,
+        corpoBruto: payloadStatusAntigo,
+        assinatura: `sha256=${crypto.createHmac('sha256', secretWebhook).update(payloadStatusAntigo).digest('hex')}`,
+    });
+    assert.equal(statusAntigo[0]?.aplicado, false);
+    assert.equal(statusAntigo[0]?.duplicado, false);
+
+    const payloadFalhaAntiga = Buffer.from(
+        payloadEntregue.toString('utf8').replace('delivered', 'failed'),
+    );
+    const falhaAntiga = await processarEventoStatusMetaVerificado({
+        ...argumentosWebhook,
+        corpoBruto: payloadFalhaAntiga,
+        assinatura: `sha256=${crypto.createHmac('sha256', secretWebhook).update(payloadFalhaAntiga).digest('hex')}`,
+    });
+    assert.equal(falhaAntiga[0]?.aplicado, false);
     await assert.rejects(
         processarEventoStatusMetaVerificado({
             ...argumentosWebhook,
@@ -373,6 +441,23 @@ test('worker simulado é concorrente, revalida pagamento/consentimento e control
     assert.equal(
         (await connection('tarefas_mensagem').where({ id: eventoWebhook.tarefaId }).first()).status,
         'ENTREGUE',
+    );
+    await connection('tarefas_mensagem')
+        .where({ id: eventoWebhook.tarefaId })
+        .update({ status: 'CANCELADA' });
+    const payloadLido = Buffer.from(payloadEntregue.toString('utf8').replace('delivered', 'read'));
+    await processarEventoStatusMetaVerificado({
+        ...argumentosWebhook,
+        corpoBruto: payloadLido,
+        assinatura: `sha256=${crypto.createHmac('sha256', secretWebhook).update(payloadLido).digest('hex')}`,
+    });
+    assert.equal(
+        (await connection('mensagens').where({ identificador_externo: externalId }).first()).status,
+        'LIDA',
+    );
+    assert.equal(
+        (await connection('tarefas_mensagem').where({ id: eventoWebhook.tarefaId }).first()).status,
+        'CANCELADA',
     );
 
     const pagoEntreLembretes = await criarMensalidadeETarefa('D-1', agora);
