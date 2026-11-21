@@ -26,12 +26,12 @@ test('validador rejeita CPF de 11 dígitos com dígitos verificadores incorretos
                 areas: ['11111111-1111-4111-8111-111111111111'],
             }),
             (error: unknown) => typeof error === 'object' && error !== null &&
-                'codigo' in error && error.codigo === 'DADOS_CLIENTE_INVALIDOS',
+                'code' in error && error.code === 'DADOS_CLIENTE_INVALIDOS',
         );
         assert.throws(
             () => validarAtualizacaoCliente({ cpf }),
             (error: unknown) => typeof error === 'object' && error !== null &&
-                'codigo' in error && error.codigo === 'DADOS_CLIENTE_INVALIDOS',
+                'code' in error && error.code === 'DADOS_CLIENTE_INVALIDOS',
         );
     }
     assert.equal(validarAtualizacaoCliente({ cpf: null }).cpf, null);
