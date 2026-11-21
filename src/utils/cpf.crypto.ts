@@ -143,14 +143,14 @@ export function lerCpfRegistro(
     organizacaoId: string,
     registro: RegistroCpfCifrado,
 ): string | null {
+    if (registro.cpf && modoProtecaoCpf() === 'strict') {
+        throw new Error('CPF legado não migrado em modo estrito.');
+    }
     if (registro.cpf_cifrado) {
         return decifrarCpf(tipo, organizacaoId, registro.id, registro.cpf_cifrado);
     }
     if (registro.cpf_indice) {
         throw new Error('Registro de CPF inconsistente: índice sem cifra.');
-    }
-    if (registro.cpf && modoProtecaoCpf() === 'strict') {
-        throw new Error('CPF legado não migrado em modo estrito.');
     }
     return registro.cpf;
 }
