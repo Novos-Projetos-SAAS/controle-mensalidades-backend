@@ -20,7 +20,10 @@ export function validarCriacaoOrganizacao(valor: unknown) {
     if (!resultado.success) {
         throw new AppError('Dados da organização inválidos.', 400, 'DADOS_ORGANIZACAO_INVALIDOS');
     }
-    return { nome: resultado.data.nome, areaInicial: validarCriacaoArea(resultado.data.areaInicial) };
+    return {
+        nome: resultado.data.nome,
+        areaInicial: validarCriacaoArea(resultado.data.areaInicial),
+    };
 }
 
 /** A conta autenticada torna-se administradora somente da organização recém-criada. */
@@ -35,7 +38,9 @@ export async function criarOrganizacaoDoUsuario(
             .whereNull('deletado_em')
             .forUpdate()
             .first();
-        if (!usuario) throw new AppError('Usuário não encontrado.', 401, 'AUTENTICACAO_INVALIDA');
+        if (!usuario) {
+            throw new AppError('Usuário não encontrado.', 401, 'AUTENTICACAO_INVALIDA');
+        }
 
         const [organizacao] = await transaction('organizacoes')
             .insert({ nome: dados.nome, ativo: true })
@@ -65,7 +70,11 @@ export async function criarOrganizacaoDoUsuario(
             dados_contexto: { areaInicialId: area.id },
         });
         return {
-            organizacao: { id: organizacao.id as string, nome: organizacao.nome as string, perfil: 'ADMINISTRADOR' as const },
+            organizacao: {
+                id: organizacao.id as string,
+                nome: organizacao.nome as string,
+                perfil: 'ADMINISTRADOR' as const,
+            },
             area: area as { id: string; nome: string; codigo: string; ativo: boolean },
         };
     });

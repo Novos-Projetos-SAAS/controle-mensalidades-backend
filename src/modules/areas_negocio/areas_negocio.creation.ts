@@ -27,11 +27,21 @@ export function validarCriacaoArea(valor: unknown): CriarAreaInput {
 }
 
 export function codigoDaArea(dados: CriarAreaInput): string {
-    const codigo = dados.codigo ??
-        dados.nome.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-            .toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 50);
+    const codigo =
+        dados.codigo ??
+        dados.nome
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toUpperCase()
+            .replace(/[^A-Z0-9]+/g, '_')
+            .replace(/^_+|_+$/g, '')
+            .slice(0, 50);
     if (!/^[A-Z0-9][A-Z0-9_]{1,49}$/.test(codigo)) {
-        throw new AppError('Informe um nome que gere um código válido.', 400, 'CODIGO_AREA_INVALIDO');
+        throw new AppError(
+            'Informe um nome que gere um código válido.',
+            400,
+            'CODIGO_AREA_INVALIDO',
+        );
     }
     return codigo;
 }
@@ -85,7 +95,11 @@ export async function criarAreaDaOrganizacao(
                 .forUpdate()
                 .first();
             if (!organizacao) {
-                throw new AppError('Organização não encontrada.', 404, 'ORGANIZACAO_NAO_ENCONTRADA');
+                throw new AppError(
+                    'Organização não encontrada.',
+                    404,
+                    'ORGANIZACAO_NAO_ENCONTRADA',
+                );
             }
             const [area] = await transaction('areas_negocio')
                 .insert({
@@ -109,11 +123,18 @@ export async function criarAreaDaOrganizacao(
         });
     } catch (error) {
         if (
-            typeof error === 'object' && error !== null && 'code' in error &&
-            error.code === '23505' && 'constraint' in error &&
+            typeof error === 'object' &&
+            error !== null &&
+            'code' in error &&
+            error.code === '23505' &&
+            'constraint' in error &&
             error.constraint === 'uq_areas_negocio_organizacao_codigo'
         ) {
-            throw new AppError('Já existe uma área com este código na organização.', 409, 'AREA_CODIGO_DUPLICADO');
+            throw new AppError(
+                'Já existe uma área com este código na organização.',
+                409,
+                'AREA_CODIGO_DUPLICADO',
+            );
         }
         throw error;
     }
