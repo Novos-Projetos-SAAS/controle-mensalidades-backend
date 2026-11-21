@@ -5,9 +5,21 @@ import AppError from '../../shared/errors/AppError.js';
 import auditoriaService from '../auditoria/auditoria.service.js';
 
 import organizacoesService from './organizacoes.service.js';
+import { criarOrganizacaoDoUsuario, validarCriacaoOrganizacao } from './organizacoes.creation.js';
 import { validarAtualizacaoOrganizacao } from './organizacoes.validator.js';
 
 class OrganizacoesController {
+    async criar(req: Request, res: Response, next: NextFunction) {
+        try {
+            if (!req.usuario) throw new AppError('Autenticação necessária.', 401, 'AUTENTICACAO_NECESSARIA');
+            const dados = validarCriacaoOrganizacao(req.body);
+            const criado = await criarOrganizacaoDoUsuario(req.usuario.id, dados);
+            return res.status(201).json({ status: 'success', data: criado });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async obterAtual(req: Request, res: Response, next: NextFunction) {
         try {
             const organizacao = await organizacoesService.obterAtual(req.auth?.organizacaoId);

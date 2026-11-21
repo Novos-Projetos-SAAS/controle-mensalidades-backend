@@ -8,6 +8,8 @@ import organizacoesController from './organizacoes.controller.js';
 
 const organizacoesRoutes = Router();
 
+organizacoesRoutes.post('/', verifyUser, organizacoesController.criar);
+
 organizacoesRoutes.use(verifyUser, verifyOrganization);
 
 organizacoesRoutes.get('/atual', organizacoesController.obterAtual);
