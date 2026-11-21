@@ -498,6 +498,24 @@ test('POST deve rejeitar dados inválidos, áreas duplicadas e campos de autorid
             areas: [areaA1Id],
         });
 
+    const cpfComDigitoErrado = await request(app)
+        .post('/api/v1/clientes')
+        .set(cabecalhos)
+        .send({
+            nome: 'CPF com dígito verificador incorreto',
+            cpf: '529.982.247-26',
+            areas: [areaA1Id],
+        });
+
+    const cpfRepetido = await request(app)
+        .post('/api/v1/clientes')
+        .set(cabecalhos)
+        .send({
+            nome: 'CPF repetido',
+            cpf: '111.111.111-11',
+            areas: [areaA1Id],
+        });
+
     const campoProibido = await request(app)
         .post('/api/v1/clientes')
         .set(cabecalhos)
@@ -508,7 +526,14 @@ test('POST deve rejeitar dados inválidos, áreas duplicadas e campos de autorid
             ativo: false,
         });
 
-    for (const response of [semAreas, areasDuplicadas, cpfInvalido, campoProibido]) {
+    for (const response of [
+        semAreas,
+        areasDuplicadas,
+        cpfInvalido,
+        cpfComDigitoErrado,
+        cpfRepetido,
+        campoProibido,
+    ]) {
         assert.equal(response.status, 400);
         assert.equal(response.body.codigo, 'DADOS_CLIENTE_INVALIDOS');
         assert.equal(response.body.mensagem, 'Dados do cliente inválidos.');
