@@ -159,3 +159,16 @@ export function lerCpfRegistro(
 export function novoIdComCpf(): string {
     return randomUUID();
 }
+
+/** Remova os valores cifrados do contrato HTTP após decifrar. */
+export function exporCpfRegistro<T extends RegistroCpfCifrado>(
+    tipo: TipoRegistroCpf,
+    organizacaoId: string,
+    registro: T,
+): T {
+    const cpf = lerCpfRegistro(tipo, organizacaoId, registro);
+    const publico = { ...registro, cpf };
+    delete publico.cpf_cifrado;
+    delete publico.cpf_indice;
+    return publico;
+}
