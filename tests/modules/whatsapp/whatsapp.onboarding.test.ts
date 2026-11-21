@@ -392,6 +392,13 @@ test('erro de permissão Meta retorna código seguro sem detalhe da resposta ext
     const { service, repositorio } = montar({
         falhaTroca: new ErroOnboardingMeta('META_PERMISSAO_INSUFICIENTE'),
     });
+    repositorio.integracoes.set('integracao-existente', {
+        organizacao_id: contexto.organizacaoId,
+        messaging_account_id: ativos.messagingAccountId,
+        phone_number_id: ativos.phoneNumberId,
+        ativo: false,
+    });
+    repositorio.tokens.set('integracao-existente', 'token-anterior-valido-fixture');
     const iniciado = await iniciar(service);
     await assert.rejects(service.concluir(contexto, callback(iniciado)), (erro: unknown) => {
         assert.ok(erro instanceof AppError);
@@ -401,6 +408,7 @@ test('erro de permissão Meta retorna código seguro sem detalhe da resposta ext
         return true;
     });
     assert.equal(repositorio.onboardings.get(iniciado.correlacaoId)?.status, 'FALHA');
+    assert.equal(repositorio.tokens.get('integracao-existente'), 'token-anterior-valido-fixture');
 });
 
 test('coexistência confirmada pula registro padrão e ainda assina webhooks', async () => {

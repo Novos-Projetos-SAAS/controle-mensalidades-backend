@@ -133,7 +133,17 @@ class RepositorioOnboardingWhatsapp {
                 ]);
             }
 
-            const conflito = await transaction('integracoes_whatsapp')
+            const atual = await transaction('integracoes_whatsapp')
+                .where({
+                    organizacao_id: input.escopo.organizacaoId,
+                    area_negocio_id: input.escopo.areaNegocioId,
+                    provedor: 'META_CLOUD_API',
+                })
+                .whereNull('deletado_em')
+                .forUpdate()
+                .first();
+
+            const consultaConflito = transaction('integracoes_whatsapp')
                 .select('id', 'organizacao_id')
                 .where({ provedor: 'META_CLOUD_API', situacao_autorizacao: 'AUTORIZADO' })
                 .whereNull('deletado_em')
@@ -146,7 +156,10 @@ class RepositorioOnboardingWhatsapp {
                                 .whereNot({ organizacao_id: input.escopo.organizacaoId }),
                         ),
                 )
-                .first();
+                .modify((query) => {
+                    if (atual) query.whereNot('id', atual.id);
+                });
+            const conflito = await consultaConflito.first();
             if (conflito) {
                 throw erro(
                     409,
@@ -156,16 +169,8 @@ class RepositorioOnboardingWhatsapp {
                 );
             }
 
-            const atual = await transaction('integracoes_whatsapp')
-                .where({
-                    organizacao_id: input.escopo.organizacaoId,
-                    area_negocio_id: input.escopo.areaNegocioId,
-                    provedor: 'META_CLOUD_API',
-                })
-                .whereNull('deletado_em')
-                .forUpdate()
-                .first();
             const id = (atual?.id as string | undefined) ?? randomUUID();
+            const reautorizacao = atual?.situacao_autorizacao === 'AUTORIZADO';
 
             const areaNegocioId = input.escopo.areaNegocioId;
             const ref = `db-aesgcm:v1:${id}`;
@@ -227,11 +232,14 @@ class RepositorioOnboardingWhatsapp {
                 organizacao_id: input.escopo.organizacaoId,
                 area_negocio_id: areaNegocioId,
                 usuario_id: input.usuarioId,
-                acao: 'WHATSAPP.EMBEDDED_SIGNUP_AUTORIZADO',
+                acao: reautorizacao
+                    ? 'WHATSAPP.EMBEDDED_SIGNUP_REAUTORIZADO'
+                    : 'WHATSAPP.EMBEDDED_SIGNUP_AUTORIZADO',
                 recurso: 'integracoes_whatsapp',
                 recurso_id: id,
                 dados_contexto: {
                     modo: input.modo,
+                    reautorizacao,
                     waba_id: input.ativos.messagingAccountId,
                     phone_number_id: input.ativos.phoneNumberId,
                     segredo_incluido: true,
