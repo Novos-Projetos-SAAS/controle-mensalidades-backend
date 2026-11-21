@@ -10,6 +10,8 @@
         "typecheck": "tsc --noEmit && tsc -p tests/tsconfig.json --noEmit",
         "test": "node --env-file=.env.test --import tsx --test tests/**/*.test.ts",
         "test:whatsapp": "node --env-file=.env.test --import tsx --test tests/modules/whatsapp/*.test.ts",
+    "cpf:verify:test": "node --env-file=.env.test --import tsx src/diagnostics/backfill-cpf.ts --dry-run",
+    "cpf:backfill:test": "node --env-file=.env.test --import tsx src/diagnostics/backfill-cpf.ts --apply --target=test --confirm=CPF-TEST-ONLY",
         "lint": "eslint src tests",
         "lint:fix": "eslint src tests --fix",
         "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
