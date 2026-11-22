@@ -46,7 +46,7 @@ O backfill aborta se CPF legado tiver tamanho não-11 ou se o dado cifrado exist
 
 ## Desenvolvimento: migrations já aplicadas no Neon
 
-Em 21/11/2026, o banco Neon do projeto `mensalidades-desenv` (identificador `little-bird-39661597`) recebeu as migrations 064, 065 e 066, registradas no histórico Knex como batch 14. Foi gerado o snapshot `backup-pre-cpf-064-066-2026-11-21` (`snap-muddy-feather-ac2rp6o2`) antes de aplicar o esquema. Nenhum CPF foi cifrado nessa etapa: 3 registros de clientes e 1 de profissional continuam em texto puro.
+Em 21/11/2026, o banco Neon do projeto `mensalidades-desenv` (identificador `little-bird-39661597`) recebeu as migrations 064, 065 e 066, registradas no histórico Knex como batch 14. Foi gerado o snapshot `backup-pre-cpf-064-066-2026-11-21` (`snap-muddy-feather-ac2rp6o2`) antes de aplicar o esquema. **Verificação de 22/11/2026 (somente leitura):** 3 CPFs de clientes e 1 de profissional já estão cifrados, e nenhum CPF em texto claro ou par cifra/índice inconsistente foi encontrado. Isso não comprova que as chaves atualmente configuradas no backend conseguem decifrar todos os registros.
 
 **Não executar `migrate:latest` novamente por tentativa de instalar a 066:** o histórico do desenvolvimento já contém essas migrations. Ao sincronizar o repositório, verifique com `npm run migrate:status`; o Knex deve reconhecer 064–066 como concluídas.
 
@@ -76,3 +76,14 @@ Em 21/11/2026, o banco Neon do projeto `mensalidades-desenv` (identificador `lit
 - Rollback da 066 é permitido somente antes de haver dados cifrados; depois disso é bloqueado para prevenir perda de documentos.
 
 **Nenhuma migration, backfill ou alteração no banco foi executada nesta entrega.**
+
+## Pré-homologação de chaves (somente leitura, não modifica registros)
+
+O comando `cpf:verify:desenv` faz apenas contagem dos legados; **não confirma** que as chaves do backend conseguem decifrar os CPFs. Para isso, foi criado o preflight de integridade com transação PostgreSQL `READ ONLY`.
+
+- No banco de teste **isolado**, configure `NODE_ENV=test`, `AMBIENTE_BANCO=teste`, `CPF_CRYPTO_MODE=transition` ou `strict`, as duas chaves **originais** e o endereço correto em `.env.test`; execute `npm run cpf:audit:test`.
+- Em **desenvolvimento**, configure `NODE_ENV=development`, `CPF_CRYPTO_MODE=transition` ou `strict`, as chaves **originais** e confirme separadamente `CPF_DEV_EXPECTED_HOST` e `CPF_DEV_EXPECTED_DATABASE`; execute `npm run cpf:audit:desenv`.
+- O comando verifica cada registro: ausência de texto claro, consistência dos campos, autenticação AES-GCM pelo contexto do tenant/registro e HMAC calculado com a chave atual. Retorna apenas **contagens agregadas**; não imprime CPF, cifra, índice, IDs ou chaves.
+- Se nenhuma linha cifrada existir, a checagem de chaves é considerada **inconclusiva e falha**. Se encontrar qualquer divergência ou configuração insegura, finaliza com erro. Não é um procedimento de rotação de chaves nem substitui o teste da aplicação publicada.
+- Nunca copie chaves ou URL de conexão para chats, tickets, GitHub ou logs. Execute com ambiente controlado e sem apontar para produção.
+

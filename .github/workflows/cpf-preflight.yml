@@ -1,0 +1,29 @@
+name: Pré-homologacao de CPF - regras sem dados reais
+on:
+  push:
+    branches:
+      - review/cpf-preflight-readonly-20261122
+  pull_request:
+    branches:
+      - main
+permissions:
+  contents: read
+jobs:
+  valida:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      NODE_ENV: test
+      AMBIENTE_BANCO: teste
+      JWT_SECRET_TEST: cpf-audit-ci
+      CPF_CRYPTO_MODE: legacy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test:cpf:audit
+      - run: npm run lint
