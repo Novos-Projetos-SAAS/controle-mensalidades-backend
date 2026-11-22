@@ -10,7 +10,7 @@ const statusMensalidadeSql = `CASE
     ELSE 'PENDENTE'
 END`;
 
-function consultaMensalidades(organizacaoId: string, areaNegocioId: string) {
+export function consultaMensalidades(organizacaoId: string, areaNegocioId: string) {
     const pagamentosPorConta = connection('pagamentos as p')
         .select('p.conta_receber_id')
         .sum({ valor_pago: 'p.valor' })

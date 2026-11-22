@@ -541,3 +541,57 @@ test('resumo limita valores à área atual e valida intervalo', async () => {
         .set(cabecalhos());
     assert.equal(intervaloInvalido.status, 400);
 });
+
+test('indicadores mostram saldos parciais, vencidos e proximos 7 dias com isolamento por tenant', async () => {
+    const assinatura = await criarAssinatura(f.areaA2, f.clienteA2, f.planoA2);
+    const headers = cabecalhos(f.adminA, f.organizacaoA, f.areaA2);
+    const gerar = async (competencia: string) => {
+        const resposta = await request(app)
+            .post(`${base}/assinaturas/${assinatura.id}/mensalidades`)
+            .set(headers)
+            .send({ competencia });
+        assert.equal(resposta.status, 201, JSON.stringify(resposta.body));
+        return resposta.body.data.mensalidade.id as string;
+    };
+    const vencidaId = await gerar('2024-04');
+    await gerar('2024-05');
+
+    const parcial = await request(app)
+        .post(`${base}/mensalidades/${vencidaId}/recebimentos`)
+        .set({ ...headers, 'Idempotency-Key': `dashboard-${crypto.randomUUID()}` })
+        .send({ valor: '20.00', forma_pagamento: 'PIX', pago_em: '2024-04-20T12:00:00Z' });
+    assert.equal(parcial.status, 201, JSON.stringify(parcial.body));
+
+    const resposta = await request(app).get(`${base}/indicadores?data=2024-04-30`).set(headers);
+    assert.equal(resposta.status, 200, JSON.stringify(resposta.body));
+    const dados = resposta.body.data;
+    assert.equal(dados.data_referencia, '2024-04-30');
+    assert.equal(dados.janela_vencimentos_fim, '2024-05-07');
+    assert.equal(dados.saldo_total, '120.00');
+    assert.equal(dados.saldo_vencido, '50.00');
+    assert.equal(dados.saldo_proximos_7_dias, '70.00');
+    assert.equal(dados.mensalidades_vencidas, '1');
+    assert.equal(dados.clientes_inadimplentes, '1');
+    assert.equal(dados.mensalidades_proximos_7_dias, '1');
+
+    const outraAcademia = await request(app)
+        .get(`${base}/indicadores?data=2024-04-30`)
+        .set(cabecalhos(f.adminB, f.organizacaoB, f.areaB));
+    assert.equal(outraAcademia.status, 200);
+    assert.equal(outraAcademia.body.data.saldo_total, '0.00');
+
+    const semAutenticacao = await request(app).get(`${base}/indicadores`);
+    assert.equal(semAutenticacao.status, 401);
+    const operador = await request(app).get(`${base}/indicadores`).set(cabecalhos(f.operadorA));
+    assert.equal(operador.status, 403);
+    const cruzado = await request(app)
+        .get(`${base}/indicadores`)
+        .set(cabecalhos(f.adminA, f.organizacaoB, f.areaB));
+    assert.equal(cruzado.status, 403);
+    const invalido = await request(app)
+        .get(`${base}/indicadores?data=2024-13-45`).set(headers);
+    assert.equal(invalido.status, 400);
+    const extra = await request(app)
+        .get(`${base}/indicadores?desconhecido=1`).set(headers);
+    assert.equal(extra.status, 400);
+});
