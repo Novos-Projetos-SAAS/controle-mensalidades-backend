@@ -146,11 +146,16 @@ export function lerCpfRegistro(
     if (registro.cpf && modoProtecaoCpf() === 'strict') {
         throw new Error('CPF legado não migrado em modo estrito.');
     }
+    if (protecaoCpfAtiva()) {
+        if (Boolean(registro.cpf_cifrado) !== Boolean(registro.cpf_indice)) {
+            throw new Error('Registro de CPF inconsistente: cifra e índice devem coexistir.');
+        }
+        if (registro.cpf && registro.cpf_cifrado) {
+            throw new Error('Registro de CPF inconsistente: texto puro e cifra simultâneos.');
+        }
+    }
     if (registro.cpf_cifrado) {
         return decifrarCpf(tipo, organizacaoId, registro.id, registro.cpf_cifrado);
-    }
-    if (registro.cpf_indice) {
-        throw new Error('Registro de CPF inconsistente: índice sem cifra.');
     }
     return registro.cpf;
 }

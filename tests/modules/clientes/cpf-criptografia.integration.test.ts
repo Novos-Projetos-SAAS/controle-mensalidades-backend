@@ -169,6 +169,7 @@ test(
         const organizacaoId = randomUUID();
         const legadoId = randomUUID();
         const inconsistenteId = randomUUID();
+        const cifraSemIndiceId = randomUUID();
         await connection('organizacoes').insert({
             id: organizacaoId,
             nome: 'CPF Strict Validação',
@@ -190,6 +191,14 @@ test(
                     cpf_cifrado: null,
                     cpf_indice: 'a'.repeat(64),
                 },
+                {
+                    id: cifraSemIndiceId,
+                    organizacao_id: organizacaoId,
+                    nome: 'CPF sem índice QA',
+                    cpf: null,
+                    cpf_cifrado: 'v1.aaaa.bbbb.cccc',
+                    cpf_indice: null,
+                },
             ]);
             await assert.rejects(
                 () => clientesRepository.buscarPorId(organizacaoId, legadoId),
@@ -199,10 +208,44 @@ test(
                 () => clientesRepository.buscarPorId(organizacaoId, inconsistenteId),
                 /Registro de CPF inconsistente/,
             );
+            await assert.rejects(
+                () => clientesRepository.buscarPorId(organizacaoId, cifraSemIndiceId),
+                /Registro de CPF inconsistente/,
+            );
         } finally {
             await connection('clientes')
-                .whereIn('id', [legadoId, inconsistenteId])
+                .whereIn('id', [legadoId, inconsistenteId, cifraSemIndiceId])
                 .del();
+            await connection('organizacoes').where({ id: organizacaoId }).del();
+        }
+    },
+);
+
+test(
+    'modo transition mantém leitura de CPF legado até concluir backfill',
+    { skip: env.CPF_CRYPTO_MODE !== 'transition' },
+    async () => {
+        exigirBancoTeste();
+        const organizacaoId = randomUUID();
+        const clienteId = randomUUID();
+        await connection('organizacoes').insert({
+            id: organizacaoId,
+            nome: 'CPF Transition Validação',
+            ativo: true,
+        });
+        try {
+            await connection('clientes').insert({
+                id: clienteId,
+                organizacao_id: organizacaoId,
+                nome: 'CPF legado transition',
+                cpf: '52998224725',
+            });
+            const resultado = await clientesRepository.buscarPorId(organizacaoId, clienteId);
+            assert.equal(resultado?.cpf, '52998224725');
+            assert.equal('cpf_cifrado' in resultado!, false);
+            assert.equal('cpf_indice' in resultado!, false);
+        } finally {
+            await connection('clientes').where({ id: clienteId }).del();
             await connection('organizacoes').where({ id: organizacaoId }).del();
         }
     },

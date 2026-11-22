@@ -168,7 +168,7 @@ class ProfissionaisRepository {
             })
             .returning([
                 ...camposPublicos,
-                ...(protecaoCpfAtiva() ? ['cpf_cifrado'] : []),
+                ...(protecaoCpfAtiva() ? ['cpf_cifrado', 'cpf_indice'] : []),
             ]);
 
         return exporCpfRegistro('profissional', organizacaoId, profissional) as Profissional;
@@ -197,7 +197,7 @@ class ProfissionaisRepository {
                 'p.id',
                 'p.nome',
                 'p.cpf',
-                ...(protecaoCpfAtiva() ? ['p.cpf_cifrado'] : []),
+                ...(protecaoCpfAtiva() ? ['p.cpf_cifrado', 'p.cpf_indice'] : []),
                 'p.email',
                 'p.telefone',
                 'p.conselho',
@@ -272,7 +272,7 @@ class ProfissionaisRepository {
                 'p.id',
                 'p.nome',
                 'p.cpf',
-                ...(protecaoCpfAtiva() ? ['p.cpf_cifrado'] : []),
+                ...(protecaoCpfAtiva() ? ['p.cpf_cifrado', 'p.cpf_indice'] : []),
                 'p.email',
                 'p.telefone',
                 'p.conselho',
