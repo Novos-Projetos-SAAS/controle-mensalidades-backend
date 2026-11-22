@@ -17,7 +17,14 @@
         "diagnostico:clinico:tls:test": "node --env-file=.env.test --import ./tests/bruno/tsx_windows_shim.mjs --import tsx src/diagnostics/tls-clinico.ts --target=test --confirm=test",
         "migrate:latest": "tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts migrate:latest",
         "migrate:rollback": "tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts migrate:rollback",
-        "migrate:status": "tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts migrate:status"
+        "migrate:status": "tsx ./node_modules/knex/bin/cli.js --knexfile knexfile.ts migrate:status",
+        "test:cpf:unit": "node --import tsx --test tests/utils/cpf.crypto.test.ts tests/utils/cpf.utils.test.ts tests/modules/clientes/clientes.validator.cpf.test.ts",
+        "test:cpf:integration": "node --env-file=.env.test --import tsx --test tests/modules/clientes/cpf-criptografia.integration.test.ts",
+        "test:cpf:http": "node --env-file=.env.test --import tsx --test tests/modules/clientes/cpf-criptografia.http.test.ts",
+        "cpf:verify:test": "node --env-file=.env.test --import tsx src/diagnostics/backfill-cpf.ts --dry-run",
+        "cpf:backfill:test": "node --env-file=.env.test --import tsx src/diagnostics/backfill-cpf.ts --apply --target=test --confirm=CPF-TEST-ONLY",
+        "cpf:verify:desenv": "node --env-file=.env --import tsx src/diagnostics/backfill-cpf-desenv.ts --dry-run",
+        "cpf:backfill:desenv": "node --env-file=.env --import tsx src/diagnostics/backfill-cpf-desenv.ts --apply --target=development --confirm=CPF-DESENV-ONLY"
     },
     "keywords": [],
     "author": "",

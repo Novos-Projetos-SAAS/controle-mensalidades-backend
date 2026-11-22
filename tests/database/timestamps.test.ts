@@ -70,10 +70,11 @@ after(async () => {
     }
 });
 
-test('inventário deve conter as 50 tabelas da aplicação com os três campos de auditoria', () => {
-    assert.equal(tabelasAplicacao.length, 50);
+test('inventário deve conter as 51 tabelas da aplicação com os três campos de auditoria', () => {
+    assert.equal(tabelasAplicacao.length, 51);
     assert.ok(tabelasAplicacao.includes('profissionais_areas'));
     assert.ok(tabelasAplicacao.includes('historico_correcoes_sessoes_clinicas'));
+    assert.ok(tabelasAplicacao.includes('webhook_eventos_whatsapp'));
 
     for (const tabela of tabelasAplicacao) {
         const nomesColunas = colunasAuditoria

@@ -39,7 +39,8 @@ function isCpfDuplicado(error: unknown) {
         'code' in error &&
         error.code === '23505' &&
         'constraint' in error &&
-        error.constraint === 'uq_profissionais_organizacao_cpf'
+        (error.constraint === 'uq_profissionais_organizacao_cpf' ||
+            error.constraint === 'uq_profissionais_organizacao_cpf_indice')
     );
 }
 

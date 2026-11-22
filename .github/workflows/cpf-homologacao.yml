@@ -1,0 +1,79 @@
+name: Homologação de CPF (sem acesso ao banco)
+
+on:
+  push:
+    branches:
+      - review/cpf-isolado-20261121
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verificar-codigo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Verificação TypeScript
+        run: npm run typecheck
+      - name: Testes unitários da criptografia CPF
+        run: npm run test:cpf:unit
+      - name: Lint
+        run: npm run lint
+
+  integracao-postgres-isolado:
+    name: Integração CPF (${{ matrix.modo }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        modo: [transition, strict]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cpf_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d cpf_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      AMBIENTE_BANCO: teste
+      DATABASE_URL_TEST: postgresql://postgres:postgres@localhost:5432/cpf_ci
+      DB_SSL: 'false'
+      CPF_CRYPTO_MODE: ${{ matrix.modo }}
+      JWT_SECRET_TEST: qa-isolado-sem-usuarios-reais
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Gerar chaves efêmeras exclusivamente na execução
+        run: |
+          node -e "const fs=require('node:fs');const {randomBytes}=require('node:crypto');fs.appendFileSync(process.env.GITHUB_ENV,['CPF_ENCRYPTION_KEY='+randomBytes(32).toString('hex'),'CPF_LOOKUP_KEY='+randomBytes(32).toString('hex')].join(String.fromCharCode(10))+String.fromCharCode(10))"
+          touch .env.test
+      - name: Aplicar migrations em banco descartável
+        run: npm run migrate:latest -- --env test
+      - name: Testar CRUD, duplicidade, tenants e modo de leitura
+        run: npm run test:cpf:integration
+      - name: Testar API HTTP autenticada de clientes
+        run: npm run test:cpf:http

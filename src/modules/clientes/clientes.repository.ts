@@ -1,5 +1,14 @@
 import type { Knex } from 'knex';
 
+import {
+    camposCpfPersistencia,
+    exporCpfRegistro,
+    indiceCpf,
+    modoProtecaoCpf,
+    novoIdComCpf,
+    protecaoCpfAtiva,
+} from '../../utils/cpf.crypto.js';
+
 import connection from '../../database/connection.js';
 
 type ExecutorBanco = Knex | Knex.Transaction;
@@ -104,11 +113,18 @@ class ClientesRepository {
     ) {
         const consulta = transaction('clientes')
             .select('id')
-            .where({
-                organizacao_id: organizacaoId,
-                cpf,
-            })
-            .whereNull('deletado_em');
+            .where('organizacao_id', organizacaoId)
+            .whereNull('deletado_em')
+            .andWhere((builder) => {
+                if (protecaoCpfAtiva()) {
+                    builder.where('cpf_indice', indiceCpf('cliente', organizacaoId, cpf));
+                    if (modoProtecaoCpf() === 'transition') {
+                        builder.orWhere('cpf', cpf);
+                    }
+                } else {
+                    builder.where('cpf', cpf);
+                }
+            });
 
         if (clienteIdExcluir) {
             consulta.whereNot('id', clienteIdExcluir);
@@ -154,11 +170,17 @@ class ClientesRepository {
         dados: DadosNovoCliente,
         transaction: Knex.Transaction,
     ): Promise<ClienteCriado> {
+        const id = novoIdComCpf();
+        const camposCpf = protecaoCpfAtiva()
+            ? camposCpfPersistencia('cliente', organizacaoId, id, dados.cpf ?? null)
+            : { cpf: dados.cpf ?? null };
+
         const [cliente] = await transaction('clientes')
             .insert({
+                id,
                 organizacao_id: organizacaoId,
                 nome: dados.nome,
-                cpf: dados.cpf ?? null,
+                ...camposCpf,
                 data_nascimento: dados.dataNascimento ?? null,
                 telefone: dados.telefone ?? null,
                 email: dados.email ?? null,
@@ -177,6 +199,7 @@ class ClientesRepository {
                 'id',
                 'nome',
                 'cpf',
+                ...(protecaoCpfAtiva() ? ['cpf_cifrado', 'cpf_indice'] : []),
                 'data_nascimento',
                 'telefone',
                 'email',
@@ -193,7 +216,7 @@ class ClientesRepository {
                 'ativo',
             ]);
 
-        return cliente as ClienteCriado;
+        return exporCpfRegistro('cliente', organizacaoId, cliente) as ClienteCriado;
     }
 
     async criarVinculosAreas(clienteId: string, areasIds: string[], transaction: Knex.Transaction) {
@@ -211,7 +234,15 @@ class ClientesRepository {
         filtros: FiltrosListagemClientes,
     ): Promise<ClienteResumo[]> {
         const consulta = connection('clientes as c')
-            .select('c.id', 'c.nome', 'c.cpf', 'c.telefone', 'c.email', 'c.ativo')
+            .select(
+                'c.id',
+                'c.nome',
+                'c.cpf',
+                ...(protecaoCpfAtiva() ? ['c.cpf_cifrado', 'c.cpf_indice'] : []),
+                'c.telefone',
+                'c.email',
+                'c.ativo',
+            )
             .where('c.organizacao_id', organizacaoId)
             .whereNull('c.deletado_em');
 
@@ -237,16 +268,29 @@ class ClientesRepository {
                     .orWhereILike('c.email', `%${filtros.busca}%`);
 
                 if (filtros.buscaNumerica) {
-                    builder
-                        .orWhere('c.cpf', 'like', `%${filtros.buscaNumerica}%`)
-                        .orWhere('c.telefone', 'like', `%${filtros.buscaNumerica}%`);
+                    builder.orWhere('c.telefone', 'like', `%${filtros.buscaNumerica}%`);
+                    if (protecaoCpfAtiva()) {
+                        if (filtros.buscaNumerica.length === 11) {
+                            builder.orWhere(
+                                'c.cpf_indice',
+                                indiceCpf('cliente', organizacaoId, filtros.buscaNumerica),
+                            );
+                            if (modoProtecaoCpf() === 'transition') {
+                                builder.orWhere('c.cpf', filtros.buscaNumerica);
+                            }
+                        }
+                    } else {
+                        builder.orWhere('c.cpf', 'like', `%${filtros.buscaNumerica}%`);
+                    }
                 }
             });
         }
 
         const clientes = await consulta.orderBy('c.nome', 'asc').orderBy('c.id', 'asc');
 
-        return clientes as ClienteResumo[];
+        return clientes.map((cliente) =>
+            exporCpfRegistro('cliente', organizacaoId, cliente),
+        ) as ClienteResumo[];
     }
 
     async buscarPorId(
@@ -260,6 +304,7 @@ class ClientesRepository {
                 'c.id',
                 'c.nome',
                 'c.cpf',
+                ...(protecaoCpfAtiva() ? ['c.cpf_cifrado', 'c.cpf_indice'] : []),
                 'c.data_nascimento',
                 'c.telefone',
                 'c.email',
@@ -292,7 +337,9 @@ class ClientesRepository {
 
         const cliente = await consulta.first();
 
-        return cliente as ClienteDetalhe | undefined;
+        return cliente
+            ? (exporCpfRegistro('cliente', organizacaoId, cliente) as ClienteDetalhe)
+            : undefined;
     }
 
     async listarAreasDosClientes(
@@ -328,7 +375,19 @@ class ClientesRepository {
                 organizacao_id: organizacaoId,
             })
             .whereNull('deletado_em')
-            .update(dados);
+            .update(
+                dados.cpf !== undefined && protecaoCpfAtiva()
+                    ? {
+                          ...dados,
+                          ...camposCpfPersistencia(
+                              'cliente',
+                              organizacaoId,
+                              clienteId,
+                              dados.cpf,
+                          ),
+                      }
+                    : dados,
+            );
     }
 
     async inativarCliente(organizacaoId: string, clienteId: string, transaction: Knex.Transaction) {

@@ -52,8 +52,36 @@ const envSchema = z
         JWT_SECRET_TEST: z.string().min(1).optional(),
 
         JWT_EXPIRES_IN: z.enum(['1h', '8h', '12h', '1d', '7d', '30d']).default('8h'),
+
+        CPF_CRYPTO_MODE: z.enum(['legacy', 'transition', 'strict']).default('legacy'),
+        CPF_ENCRYPTION_KEY: z.string().optional(),
+        CPF_LOOKUP_KEY: z.string().optional(),
     })
     .superRefine((valores, contexto) => {
+        if (valores.CPF_CRYPTO_MODE !== 'legacy') {
+            for (const chave of ['CPF_ENCRYPTION_KEY', 'CPF_LOOKUP_KEY'] as const) {
+                if (!/^[a-f\d]{64}$/i.test(valores[chave] ?? '')) {
+                    contexto.addIssue({
+                        code: 'custom',
+                        path: [chave],
+                        message: 'Informe uma chave de 32 bytes em hexadecimal (64 caracteres).',
+                    });
+                }
+            }
+            if (
+                valores.CPF_ENCRYPTION_KEY &&
+                valores.CPF_LOOKUP_KEY &&
+                valores.CPF_ENCRYPTION_KEY.toLowerCase() ===
+                    valores.CPF_LOOKUP_KEY.toLowerCase()
+            ) {
+                contexto.addIssue({
+                    code: 'custom',
+                    path: ['CPF_LOOKUP_KEY'],
+                    message: 'A chave HMAC deve ser diferente da chave de criptografia.',
+                });
+            }
+        }
+
         if (valores.CLINICAL_DB_LOCK_TIMEOUT_MS >= valores.CLINICAL_DB_STATEMENT_TIMEOUT_MS) {
             contexto.addIssue({
                 code: 'custom',

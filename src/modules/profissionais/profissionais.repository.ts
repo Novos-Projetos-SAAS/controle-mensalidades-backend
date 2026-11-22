@@ -1,5 +1,14 @@
 import type { Knex } from 'knex';
 
+import {
+    camposCpfPersistencia,
+    exporCpfRegistro,
+    indiceCpf,
+    modoProtecaoCpf,
+    novoIdComCpf,
+    protecaoCpfAtiva,
+} from '../../utils/cpf.crypto.js';
+
 import connection from '../../database/connection.js';
 
 type ExecutorBanco = Knex | Knex.Transaction;
@@ -81,11 +90,18 @@ class ProfissionaisRepository {
     ) {
         const consulta = transaction('profissionais')
             .select('id')
-            .where({
-                organizacao_id: organizacaoId,
-                cpf,
-            })
-            .whereNull('deletado_em');
+            .where('organizacao_id', organizacaoId)
+            .whereNull('deletado_em')
+            .andWhere((builder) => {
+                if (protecaoCpfAtiva()) {
+                    builder.where('cpf_indice', indiceCpf('profissional', organizacaoId, cpf));
+                    if (modoProtecaoCpf() === 'transition') {
+                        builder.orWhere('cpf', cpf);
+                    }
+                } else {
+                    builder.where('cpf', cpf);
+                }
+            });
 
         if (profissionalIdExcluir) {
             consulta.whereNot('id', profissionalIdExcluir);
@@ -131,12 +147,18 @@ class ProfissionaisRepository {
         dados: DadosNovoProfissional,
         transaction: Knex.Transaction,
     ): Promise<Profissional> {
+        const id = novoIdComCpf();
+        const camposCpf = protecaoCpfAtiva()
+            ? camposCpfPersistencia('profissional', organizacaoId, id, dados.cpf ?? null)
+            : { cpf: dados.cpf ?? null };
+
         const [profissional] = await transaction('profissionais')
             .insert({
+                id,
                 organizacao_id: organizacaoId,
                 usuario_id: null,
                 nome: dados.nome,
-                cpf: dados.cpf ?? null,
+                ...camposCpf,
                 email: dados.email ?? null,
                 telefone: dados.telefone ?? null,
                 conselho: dados.conselho ?? null,
@@ -144,9 +166,12 @@ class ProfissionaisRepository {
                 uf_conselho: dados.uf_conselho ?? null,
                 ativo: true,
             })
-            .returning(camposPublicos);
+            .returning([
+                ...camposPublicos,
+                ...(protecaoCpfAtiva() ? ['cpf_cifrado', 'cpf_indice'] : []),
+            ]);
 
-        return profissional as Profissional;
+        return exporCpfRegistro('profissional', organizacaoId, profissional) as Profissional;
     }
 
     async criarVinculosAreas(
@@ -172,6 +197,7 @@ class ProfissionaisRepository {
                 'p.id',
                 'p.nome',
                 'p.cpf',
+                ...(protecaoCpfAtiva() ? ['p.cpf_cifrado', 'p.cpf_indice'] : []),
                 'p.email',
                 'p.telefone',
                 'p.conselho',
@@ -210,16 +236,29 @@ class ProfissionaisRepository {
                     .orWhereILike('p.numero_conselho', `%${filtros.busca}%`);
 
                 if (filtros.buscaNumerica) {
-                    builder
-                        .orWhere('p.cpf', 'like', `%${filtros.buscaNumerica}%`)
-                        .orWhere('p.telefone', 'like', `%${filtros.buscaNumerica}%`);
+                    builder.orWhere('p.telefone', 'like', `%${filtros.buscaNumerica}%`);
+                    if (protecaoCpfAtiva()) {
+                        if (filtros.buscaNumerica.length === 11) {
+                            builder.orWhere(
+                                'p.cpf_indice',
+                                indiceCpf('profissional', organizacaoId, filtros.buscaNumerica),
+                            );
+                            if (modoProtecaoCpf() === 'transition') {
+                                builder.orWhere('p.cpf', filtros.buscaNumerica);
+                            }
+                        }
+                    } else {
+                        builder.orWhere('p.cpf', 'like', `%${filtros.buscaNumerica}%`);
+                    }
                 }
             });
         }
 
         const profissionais = await consulta.orderBy('p.nome', 'asc').orderBy('p.id', 'asc');
 
-        return profissionais as Profissional[];
+        return profissionais.map((profissional) =>
+            exporCpfRegistro('profissional', organizacaoId, profissional),
+        ) as Profissional[];
     }
 
     async buscarPorId(
@@ -233,6 +272,7 @@ class ProfissionaisRepository {
                 'p.id',
                 'p.nome',
                 'p.cpf',
+                ...(protecaoCpfAtiva() ? ['p.cpf_cifrado', 'p.cpf_indice'] : []),
                 'p.email',
                 'p.telefone',
                 'p.conselho',
@@ -253,7 +293,9 @@ class ProfissionaisRepository {
 
         const profissional = await consulta.first();
 
-        return profissional as ProfissionalDetalhe | undefined;
+        return profissional
+            ? (exporCpfRegistro('profissional', organizacaoId, profissional) as ProfissionalDetalhe)
+            : undefined;
     }
 
     async listarAreasDosProfissionais(
@@ -295,7 +337,19 @@ class ProfissionaisRepository {
                 organizacao_id: organizacaoId,
             })
             .whereNull('deletado_em')
-            .update(dados);
+            .update(
+                dados.cpf !== undefined && protecaoCpfAtiva()
+                    ? {
+                          ...dados,
+                          ...camposCpfPersistencia(
+                              'profissional',
+                              organizacaoId,
+                              profissionalId,
+                              dados.cpf,
+                          ),
+                      }
+                    : dados,
+            );
     }
 
     async inativarProfissional(
