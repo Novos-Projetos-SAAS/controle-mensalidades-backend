@@ -20,6 +20,7 @@ app.use(requestId);
 
 app.use(cors(criarOpcoesCors(origensCors)));
 
+app.use('/api/v1/whatsapp/webhook', express.raw({ type: 'application/json', limit: '1mb' }));
 app.use(express.json());
 
 app.use(cookieParser());

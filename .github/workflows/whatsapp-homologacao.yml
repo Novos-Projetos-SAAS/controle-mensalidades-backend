@@ -1,0 +1,56 @@
+name: Homologacao de WhatsApp (envio real desativado)
+
+on:
+  push:
+    branches:
+      - review/whatsapp-isolado-20261121
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  whatsapp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: whatsapp_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d whatsapp_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      AMBIENTE_BANCO: teste
+      DATABASE_URL_TEST: postgresql://postgres:postgres@localhost:5432/whatsapp_ci
+      DB_SSL: 'false'
+      CPF_CRYPTO_MODE: transition
+      JWT_SECRET_TEST: qa-whatsapp-isolado
+      WHATSAPP_META_REAL_SEND_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Criar chaves efemeras sem enviar dados reais
+        run: |
+          node -e "const fs=require('node:fs');const {randomBytes}=require('node:crypto');fs.appendFileSync(process.env.GITHUB_ENV,['CPF_ENCRYPTION_KEY='+randomBytes(32).toString('hex'),'CPF_LOOKUP_KEY='+randomBytes(32).toString('hex'),'WHATSAPP_CREDENTIALS_ENCRYPTION_KEY='+randomBytes(32).toString('base64')].join(String.fromCharCode(10))+String.fromCharCode(10))"
+          touch .env.test
+      - run: npm run migrate:latest -- --env test
+      - run: npm run typecheck
+      - run: npm run test:whatsapp
+      - run: npm run lint
