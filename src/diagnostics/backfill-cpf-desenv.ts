@@ -73,7 +73,7 @@ function verificarBancoDesenvolvimento(): void {
             if (erro instanceof Error && erro.message.includes('coincide com outro ambiente')) {
                 throw erro;
             }
-            throw new Error('Uma URL de outro ambiente está inválida.');
+            throw new Error('Uma URL de outro ambiente está inválida.', { cause: erro });
         }
     }
 }
