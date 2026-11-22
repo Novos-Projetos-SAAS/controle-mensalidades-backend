@@ -285,7 +285,7 @@ test('ADMINISTRADOR deve criar cliente normalizado, vinculado às áreas e audit
         .set('x-organizacao-id', organizacaoAId)
         .send({
             nome: '  João da Silva  ',
-            cpf: '123.456.789-01',
+            cpf: '123.456.789-09',
             data_nascimento: '1990-05-20',
             telefone: '(18) 99999-9999',
             email: '  JOAO@EXEMPLO.COM  ',
@@ -306,7 +306,7 @@ test('ADMINISTRADOR deve criar cliente normalizado, vinculado às áreas e audit
     assert.equal(response.body.message, 'Cliente criado com sucesso.');
 
     assert.equal(response.body.data.nome, 'João da Silva');
-    assert.equal(response.body.data.cpf, '12345678901');
+    assert.equal(response.body.data.cpf, '12345678909');
     assert.equal(response.body.data.telefone, '18999999999');
     assert.equal(response.body.data.email, 'joao@exemplo.com');
     assert.equal(response.body.data.cep, '16000000');
@@ -325,7 +325,7 @@ test('ADMINISTRADOR deve criar cliente normalizado, vinculado às áreas e audit
 
     assert.ok(cliente);
     assert.equal(cliente.nome, 'João da Silva');
-    assert.equal(cliente.cpf, '12345678901');
+    assert.equal(cliente.cpf, '12345678909');
     assert.equal(cliente.telefone, '18999999999');
     assert.equal(cliente.email, 'joao@exemplo.com');
     assert.equal(cliente.cep, '16000000');
@@ -402,7 +402,7 @@ test('POST deve impedir vínculo com área de outra organização', async () => 
         .set('x-organizacao-id', organizacaoAId)
         .send({
             nome: 'Cliente Cross Tenant',
-            cpf: '11122233344',
+            cpf: '11122233396',
             areas: [areaA1Id, areaBId],
         });
 
@@ -412,7 +412,7 @@ test('POST deve impedir vínculo com área de outra organização', async () => 
     const cliente = await connection('clientes')
         .where({
             organizacao_id: organizacaoAId,
-            cpf: '11122233344',
+            cpf: '11122233396',
         })
         .first();
 
@@ -442,7 +442,7 @@ test('POST deve rejeitar CPF duplicado dentro da mesma organização', async () 
         .set('x-organizacao-id', organizacaoAId)
         .send({
             nome: 'Primeiro Cliente',
-            cpf: '22233344455',
+            cpf: '22233344405',
             areas: [areaA1Id],
         });
 
@@ -454,7 +454,7 @@ test('POST deve rejeitar CPF duplicado dentro da mesma organização', async () 
         .set('x-organizacao-id', organizacaoAId)
         .send({
             nome: 'Segundo Cliente',
-            cpf: '222.333.444-55',
+            cpf: '222.333.444-05',
             areas: [areaA2Id],
         });
 
@@ -464,7 +464,7 @@ test('POST deve rejeitar CPF duplicado dentro da mesma organização', async () 
 
     const clientes = await connection('clientes').where({
         organizacao_id: organizacaoAId,
-        cpf: '22233344455',
+        cpf: '22233344405',
     });
 
     assert.equal(clientes.length, 1);
@@ -498,6 +498,24 @@ test('POST deve rejeitar dados inválidos, áreas duplicadas e campos de autorid
             areas: [areaA1Id],
         });
 
+    const cpfComDigitoErrado = await request(app)
+        .post('/api/v1/clientes')
+        .set(cabecalhos)
+        .send({
+            nome: 'CPF com dígito verificador incorreto',
+            cpf: '529.982.247-26',
+            areas: [areaA1Id],
+        });
+
+    const cpfRepetido = await request(app)
+        .post('/api/v1/clientes')
+        .set(cabecalhos)
+        .send({
+            nome: 'CPF repetido',
+            cpf: '111.111.111-11',
+            areas: [areaA1Id],
+        });
+
     const campoProibido = await request(app)
         .post('/api/v1/clientes')
         .set(cabecalhos)
@@ -508,7 +526,14 @@ test('POST deve rejeitar dados inválidos, áreas duplicadas e campos de autorid
             ativo: false,
         });
 
-    for (const response of [semAreas, areasDuplicadas, cpfInvalido, campoProibido]) {
+    for (const response of [
+        semAreas,
+        areasDuplicadas,
+        cpfInvalido,
+        cpfComDigitoErrado,
+        cpfRepetido,
+        campoProibido,
+    ]) {
         assert.equal(response.status, 400);
         assert.equal(response.body.codigo, 'DADOS_CLIENTE_INVALIDOS');
         assert.equal(response.body.mensagem, 'Dados do cliente inválidos.');
@@ -516,7 +541,7 @@ test('POST deve rejeitar dados inválidos, áreas duplicadas e campos de autorid
 });
 
 test('requisições concorrentes não devem criar CPF duplicado', async () => {
-    const cpf = '33344455566';
+    const cpf = '33344455508';
 
     const dados = {
         nome: 'Cliente Concorrente',
@@ -945,7 +970,7 @@ test('PATCH deve normalizar CPF, telefone, email, CEP e UF', async () => {
 test('PATCH deve usar null para limpar todos os campos nullable e preservar áreas', async () => {
     const clienteId = await criarClienteTeste(organizacaoAId, {
         nome: 'Cliente Campos Preenchidos',
-        cpf: '11122233344',
+        cpf: '11122233396',
         dataNascimento: '1995-08-10',
         telefone: '18999991111',
         email: 'preenchido@teste.com',
@@ -1089,7 +1114,7 @@ test('PATCH deve tratar cliente soft-deleted como não encontrado', async () => 
 test('PATCH deve rejeitar CPF de outro cliente da mesma organização', async () => {
     await criarClienteTeste(organizacaoAId, {
         nome: 'Cliente CPF Existente',
-        cpf: '12345678901',
+        cpf: '12345678909',
         areas: [areaA1Id],
     });
     const clienteId = await criarClienteTeste(organizacaoAId, {
@@ -1102,7 +1127,7 @@ test('PATCH deve rejeitar CPF de outro cliente da mesma organização', async ()
         .patch(`/api/v1/clientes/${clienteId}`)
         .set('Cookie', cookieDoUsuario(adminAId))
         .set('x-organizacao-id', organizacaoAId)
-        .send({ cpf: '123.456.789-01' });
+        .send({ cpf: '123.456.789-09' });
 
     assert.equal(response.status, 409);
     assert.equal(response.body.codigo, 'CLIENTE_CPF_JA_CADASTRADO');
@@ -1160,7 +1185,7 @@ test('PATCHs concorrentes devem permitir que apenas um cliente assuma o mesmo CP
         nome: 'Segundo Cliente Concorrente',
         areas: [areaA2Id],
     });
-    const cpf = '44477711108';
+    const cpf = '44477711107';
     const atualizarCpf = (clienteId: string) =>
         request(app)
             .patch(`/api/v1/clientes/${clienteId}`)
@@ -1339,7 +1364,7 @@ test('PATCH deve rejeitar áreas duplicadas', async () => {
 });
 
 test('PATCH deve registrar auditoria sem valores de dados pessoais', async () => {
-    const cpfAnterior = '12345678901';
+    const cpfAnterior = '12345678909';
     const telefoneAnterior = '18999990000';
     const emailAnterior = 'anterior@teste.com';
     const clienteId = await criarClienteTeste(organizacaoAId, {
@@ -1413,7 +1438,7 @@ test('PATCH deve registrar auditoria sem valores de dados pessoais', async () =>
 test('ADMINISTRADOR deve inativar cliente preservando cadastro e áreas com auditoria segura', async () => {
     const clienteId = await criarClienteTeste(organizacaoAId, {
         nome: 'Cliente Lifecycle Completo',
-        cpf: '12345678901',
+        cpf: '12345678909',
         dataNascimento: '1990-05-20',
         telefone: '18999998888',
         email: 'lifecycle@teste.com',
@@ -1433,7 +1458,7 @@ test('ADMINISTRADOR deve inativar cliente preservando cadastro e áreas com audi
     assert.equal(response.body.data.ativo, false);
     assert.equal(Number.isNaN(Date.parse(response.body.data.inativado_em)), false);
     assert.equal(response.body.data.nome, 'Cliente Lifecycle Completo');
-    assert.equal(response.body.data.cpf, '12345678901');
+    assert.equal(response.body.data.cpf, '12345678909');
     assert.equal(response.body.data.telefone, '18999998888');
     assert.equal(response.body.data.email, 'lifecycle@teste.com');
     assert.equal(response.body.data.logradouro, 'Rua Preservada');
@@ -1474,7 +1499,7 @@ test('ADMINISTRADOR deve inativar cliente preservando cadastro e áreas com audi
     const contexto = JSON.stringify(auditoria.dados_contexto);
 
     for (const dadoPessoal of [
-        '12345678901',
+        '12345678909',
         '1990-05-20',
         '18999998888',
         'lifecycle@teste.com',
@@ -1774,7 +1799,7 @@ test('lifecycle concorrente deve serializar operações no mesmo cliente', async
 test('ADMINISTRADOR deve registrar aceite de WhatsApp normalizado com auditoria segura', async () => {
     const clienteId = await criarClienteTeste(organizacaoAId, {
         nome: 'Cliente Consentimento',
-        cpf: '12345678901',
+        cpf: '12345678909',
         telefone: '18999998888',
         email: 'consentimento@teste.com',
         logradouro: 'Rua Particular',
@@ -1845,7 +1870,7 @@ test('ADMINISTRADOR deve registrar aceite de WhatsApp normalizado com auditoria 
 
     for (const dadoNaoAuditavel of [
         'PRESENCIAL',
-        '12345678901',
+        '12345678909',
         '18999998888',
         'consentimento@teste.com',
         'Rua Particular',

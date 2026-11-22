@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import AppError from '../../shared/errors/AppError.js';
+import { cpfValido } from '../../utils/cpf.utils.js';
 
 const clienteIdSchema = z.uuid();
 
@@ -23,7 +24,7 @@ const cpfSchema = z.preprocess((valor) => {
     const cpf = valor.replace(/\D/g, '');
 
     return cpf === '' ? undefined : cpf;
-}, z.string().length(11).optional());
+}, z.string().length(11).refine(cpfValido, 'CPF inválido.').optional());
 
 const telefoneSchema = z.preprocess((valor) => {
     if (typeof valor !== 'string') {
@@ -93,7 +94,7 @@ const textoNullable = (maximo: number) =>
 const cpfNullableSchema = z
     .preprocess(
         (valor) => (typeof valor === 'string' ? valor.replace(/\D/g, '') : valor),
-        z.union([z.string().length(11), z.null()]),
+        z.union([z.string().length(11).refine(cpfValido, 'CPF inválido.'), z.null()]),
     )
     .optional();
 
