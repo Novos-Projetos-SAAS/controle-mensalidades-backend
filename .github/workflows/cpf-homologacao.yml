@@ -71,3 +71,5 @@ jobs:
         run: npm run migrate:latest -- --env test
       - name: Testar CRUD, duplicidade, tenants e modo de leitura
         run: npm run test:cpf:integration
+      - name: Testar API HTTP autenticada de clientes
+        run: npm run test:cpf:http
