@@ -8,8 +8,6 @@
  * Escrita:
  * node --env-file=.env --import tsx src/diagnostics/backfill-cpf-desenv.ts --apply --target=development --confirm=CPF-DESENV-ONLY
  */
-import dotenv from 'dotenv';
-
 import { env } from '../configuration/env.js';
 import connection from '../database/connection.js';
 import {

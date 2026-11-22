@@ -44,6 +44,23 @@ Não retornar ao modo legacy depois de criar valores cifrados: o código legado 
 
 O backfill aborta se CPF legado tiver tamanho não-11 ou se o dado cifrado existente divergir; não imprime o valor. CPFs legados com verificadores matemáticos inválidos são preservados criptografados para evitar perda silenciosa. A validação matemática permanece ativa nos novos cadastros de clientes.
 
+## Desenvolvimento: migrations já aplicadas no Neon
+
+Em 21/11/2026, o banco Neon do projeto `mensalidades-desenv` (identificador `little-bird-39661597`) recebeu as migrations 064, 065 e 066, registradas no histórico Knex como batch 14. Foi gerado o snapshot `backup-pre-cpf-064-066-2026-11-21` (`snap-muddy-feather-ac2rp6o2`) antes de aplicar o esquema. Nenhum CPF foi cifrado nessa etapa: 3 registros de clientes e 1 de profissional continuam em texto puro.
+
+**Não executar `migrate:latest` novamente por tentativa de instalar a 066:** o histórico do desenvolvimento já contém essas migrations. Ao sincronizar o repositório, verifique com `npm run migrate:status`; o Knex deve reconhecer 064–066 como concluídas.
+
+### Backfill de desenvolvimento — somente com as chaves do backend
+
+1. Pare o servidor e qualquer outro trabalhador que grave clientes/profissionais; faça backup e confirme que a .env é do Neon `mensalidades-desenv`.
+2. Use a branch de código `codex/cpf-backfill-desenv`. Configure na .env privada `NODE_ENV=development`, `CPF_CRYPTO_MODE=transition`, `DATABASE_URL` do desenvolvimento, `CPF_ENCRYPTION_KEY` e `CPF_LOOKUP_KEY` diferentes e com 64 caracteres HEX cada. Nunca envie essas chaves no chat.
+3. Configure `CPF_DEV_EXPECTED_HOST` com o hostname *confirmado separadamente* no Console Neon (sem protocolo/usuário/senha) e `CPF_DEV_EXPECTED_DATABASE` com o nome do banco da URL. Ambos são obrigatórios como dupla confirmação. Não confundir com o nome do projeto Neon.
+4. Com a API ainda parada, execute `npm run cpf:verify:desenv`: deve mostrar quantidade de CPFs legados, sem revelar valores. Em seguida `npm run cpf:backfill:desenv` para gravar cifra/HMAC em lotes transacionais.
+5. Execute `npm run cpf:verify:desenv` de novo; devem restar zero CPFs legados. Verifique leitura/edição, busca completa, CPF duplicado e isolamento por organização em staging antes de ligar `CPF_CRYPTO_MODE=strict`.
+6. Guarde as chaves de desenvolvimento com segurança e não retorne ao modo `legacy` após criar dados cifrados. Uma restauração de backup anterior precisará considerar a versão correta das chaves.
+
+**Importante:** A aplicação sempre deve ler/escrever com as chaves originais do respectivo banco. O Neon MCP não pode executar o backfill sem as chaves privadas do backend, e não devemos enviá-las ao Neon como parte de SQL.
+
 ## Fase final pendente ANTES da produção
 
 - Implementar um corte separado que bloqueie escritas plaintext no PostgreSQL e remova a coluna "cpf" original e seus índices somente após verificar todos os tenants e trabalhadores atualizados.
