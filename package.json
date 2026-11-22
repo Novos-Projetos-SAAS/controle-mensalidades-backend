@@ -25,7 +25,10 @@
         "cpf:backfill:test": "node --env-file=.env.test --import tsx src/diagnostics/backfill-cpf.ts --apply --target=test --confirm=CPF-TEST-ONLY",
         "cpf:verify:desenv": "node --env-file=.env --import tsx src/diagnostics/backfill-cpf-desenv.ts --dry-run",
         "cpf:backfill:desenv": "node --env-file=.env --import tsx src/diagnostics/backfill-cpf-desenv.ts --apply --target=development --confirm=CPF-DESENV-ONLY",
-        "test:whatsapp": "node --env-file=.env.test --import tsx --test tests/modules/whatsapp/*.test.ts"
+        "test:whatsapp": "node --env-file=.env.test --import tsx --test tests/modules/whatsapp/*.test.ts",
+        "cpf:audit:test": "node --env-file=.env.test --import tsx src/diagnostics/auditar-cpf.ts --read-only --target=test",
+        "cpf:audit:desenv": "node --env-file=.env --import tsx src/diagnostics/auditar-cpf.ts --read-only --target=development",
+        "test:cpf:audit": "node --import tsx --test tests/utils/cpf.audit.test.ts"
     },
     "keywords": [],
     "author": "",
