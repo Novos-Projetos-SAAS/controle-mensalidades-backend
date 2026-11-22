@@ -6,6 +6,7 @@ import verifyUser from '../../middlewares/verifyUser.middleware.js';
 import contextoArea from '../contexto/contextoArea.middleware.js';
 
 import financeiroController from './financeiro.controller.js';
+import indicadoresController from './financeiro.indicadores.js';
 
 const financeiroRoutes = Router();
 
@@ -31,5 +32,6 @@ financeiroRoutes.post(
 );
 
 financeiroRoutes.get('/resumo', financeiroController.obterResumo);
+financeiroRoutes.get('/indicadores', indicadoresController);
 
 export default financeiroRoutes;
