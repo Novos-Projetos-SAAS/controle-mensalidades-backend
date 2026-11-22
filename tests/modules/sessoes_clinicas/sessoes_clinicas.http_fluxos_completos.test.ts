@@ -76,6 +76,9 @@ function corpoCriacao(profissionalId = ids.profissionalTitular) {
         profissional_id: profissionalId,
         data_sessao: '2026-10-02T14:00:00Z',
         evolucao: 'Atendimento avulso ficticio para teste HTTP.',
+        objetivo_sessao: 'Trabalho funcional com paciente fictício',
+        procedimentos_realizados: 'Mobilização e exercícios terapêuticos fictícios',
+        resposta_paciente: 'Resposta funcional fictícia',
     };
 }
 
@@ -335,13 +338,16 @@ test('cria sessão avulsa do próprio profissional pelo HTTP', async () => {
     const sessaoIdCriada = resposta.body.data.id as string;
     assert.ok(sessaoIdCriada);
     assert.equal(resposta.body.data.profissional_id, ids.profissionalTitular);
+    assert.equal(resposta.body.data.procedimentos_realizados, 'Mobilização e exercícios terapêuticos fictícios');
 
     const persistida = await connection('sessoes_clinicas')
-        .select('id', 'cliente_id', 'profissional_id')
+        .select('id', 'cliente_id', 'profissional_id', 'procedimentos_realizados', 'resposta_paciente')
         .where('id', sessaoIdCriada)
         .first();
     assert.equal(persistida?.cliente_id, ids.paciente);
     assert.equal(persistida?.profissional_id, ids.profissionalTitular);
+    assert.equal(persistida?.procedimentos_realizados, 'Mobilização e exercícios terapêuticos fictícios');
+    assert.equal(persistida?.resposta_paciente, 'Resposta funcional fictícia');
 });
 
 test('não permite criar sessão em nome de outro fisioterapeuta', async () => {

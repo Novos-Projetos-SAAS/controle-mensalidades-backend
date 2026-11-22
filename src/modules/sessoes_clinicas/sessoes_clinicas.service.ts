@@ -193,6 +193,27 @@ class SessoesClinicasService {
                     ...(dados.observacoes !== undefined && {
                         observacoes: dados.observacoes,
                     }),
+                    ...(dados.objetivo_sessao !== undefined && {
+                        objetivo_sessao: dados.objetivo_sessao,
+                    }),
+                    ...(dados.avaliacao_previa !== undefined && {
+                        avaliacao_previa: dados.avaliacao_previa,
+                    }),
+                    ...(dados.procedimentos_realizados !== undefined && {
+                        procedimentos_realizados: dados.procedimentos_realizados,
+                    }),
+                    ...(dados.exercicios_parametros !== undefined && {
+                        exercicios_parametros: dados.exercicios_parametros,
+                    }),
+                    ...(dados.resposta_paciente !== undefined && {
+                        resposta_paciente: dados.resposta_paciente,
+                    }),
+                    ...(dados.orientacoes !== undefined && {
+                        orientacoes: dados.orientacoes,
+                    }),
+                    ...(dados.plano_proxima_sessao !== undefined && {
+                        plano_proxima_sessao: dados.plano_proxima_sessao,
+                    }),
                 };
 
                 const sessaoId = await sessoesClinicasRepository.criar(
@@ -299,6 +320,27 @@ class SessoesClinicasService {
                 ...(dados.observacoes !== undefined && {
                     observacoes: dados.observacoes,
                 }),
+                ...(dados.objetivo_sessao !== undefined && {
+                    objetivo_sessao: dados.objetivo_sessao,
+                }),
+                ...(dados.avaliacao_previa !== undefined && {
+                    avaliacao_previa: dados.avaliacao_previa,
+                }),
+                ...(dados.procedimentos_realizados !== undefined && {
+                    procedimentos_realizados: dados.procedimentos_realizados,
+                }),
+                ...(dados.exercicios_parametros !== undefined && {
+                    exercicios_parametros: dados.exercicios_parametros,
+                }),
+                ...(dados.resposta_paciente !== undefined && {
+                    resposta_paciente: dados.resposta_paciente,
+                }),
+                ...(dados.orientacoes !== undefined && {
+                    orientacoes: dados.orientacoes,
+                }),
+                ...(dados.plano_proxima_sessao !== undefined && {
+                    plano_proxima_sessao: dados.plano_proxima_sessao,
+                }),
             };
 
             // 3. Define os campos clínicos que podem ser corrigidos.
@@ -308,6 +350,13 @@ class SessoesClinicasService {
                 'prognostico',
                 'plano_terapeutico',
                 'observacoes',
+                'objetivo_sessao',
+                'avaliacao_previa',
+                'procedimentos_realizados',
+                'exercicios_parametros',
+                'resposta_paciente',
+                'orientacoes',
+                'plano_proxima_sessao',
             ] as const;
 
             const camposAlterados: string[] = [];
