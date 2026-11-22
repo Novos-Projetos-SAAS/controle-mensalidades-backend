@@ -10,6 +10,8 @@
         "typecheck": "tsc --noEmit && tsc -p tests/tsconfig.json --noEmit",
         "test": "node --env-file=.env.test --import tsx --test tests/**/*.test.ts",
         "test:whatsapp": "node --env-file=.env.test --import tsx --test tests/modules/whatsapp/*.test.ts",
+    "test:cpf:unit": "node --import tsx --test tests/utils/cpf.crypto.test.ts",
+    "test:cpf:integration": "node --env-file=.env.test --import tsx --test tests/modules/clientes/cpf-criptografia.integration.test.ts",
     "cpf:verify:test": "node --env-file=.env.test --import tsx src/diagnostics/backfill-cpf.ts --dry-run",
     "cpf:backfill:test": "node --env-file=.env.test --import tsx src/diagnostics/backfill-cpf.ts --apply --target=test --confirm=CPF-TEST-ONLY",
     "cpf:verify:desenv": "node --env-file=.env --import tsx src/diagnostics/backfill-cpf-desenv.ts --dry-run",

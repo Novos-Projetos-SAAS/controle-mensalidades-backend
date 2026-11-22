@@ -1,0 +1,28 @@
+name: Homologação de CPF (sem acesso ao banco)
+
+on:
+  push:
+    branches:
+      - codex/cpf-homologacao
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verificar-codigo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Verificação TypeScript
+        run: npm run typecheck
+      - name: Testes unitários da criptografia CPF
+        run: npm run test:cpf:unit
+      - name: Lint
+        run: npm run lint

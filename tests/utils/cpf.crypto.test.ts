@@ -55,3 +55,25 @@ test('HMAC é estável dentro da organização, isolado entre tenants e tipos', 
     assert.equal(storage.cpf_indice, a);
     assert.ok(storage.cpf_cifrado);
 });
+
+test('armazenamento de CPF nulo não mantém cifra nem índice', () => {
+    assert.deepEqual(camposCpfPersistencia('cliente', orgA, idA, null, chaves), {
+        cpf: null,
+        cpf_cifrado: null,
+        cpf_indice: null,
+    });
+});
+
+test('cifra rejeita formato inválido, nonce e tag adulterados', () => {
+    const cifrado = cifrarCpf('cliente', orgA, idA, '52998224725', chaves);
+    const [versao, nonce, tag, corpo] = cifrado.split('.');
+    assert.equal(versao, 'v1');
+    assert.throws(() => decifrarCpf('cliente', orgA, idA, cifrado.replace('v1.', 'v2.'), chaves));
+    assert.throws(() => decifrarCpf('cliente', orgA, idA, 'v1.not-base64', chaves));
+    assert.throws(
+        () => decifrarCpf('cliente', orgA, idA, ['v1', nonce!.slice(1), tag, corpo].join('.'), chaves),
+    );
+    const tagAlterada = Buffer.from(tag!, 'base64url');
+    tagAlterada[0] = tagAlterada[0]! ^ 1;
+    assert.throws(() => decifrarCpf('cliente', orgA, idA, ['v1', nonce, tagAlterada.toString('base64url'), corpo].join('.'), chaves));
+});
