@@ -15,6 +15,7 @@ import verifyOrganization from '../../../src/middlewares/verifyOrganization.midd
 import verifyUser from '../../../src/middlewares/verifyUser.middleware.js';
 import contextoArea from '../../../src/modules/contexto/contextoArea.middleware.js';
 import controller from '../../../src/modules/documentos_clinicos/documentos_clinicos.controller.js';
+import timelineController from '../../../src/modules/prontuario/prontuario.timeline.controller.js';
 
 // Este teste é exclusivo de uma instancia LOCAL DESCARTAVEL.
 // NUNCA executar contra Neon, bancos compartilhados ou producao.
@@ -31,6 +32,8 @@ const ids = {
     profA: crypto.randomUUID(),
     profB: crypto.randomUUID(),
     clienteA: crypto.randomUUID(),
+    sessaoA: crypto.randomUUID(),
+    sessaoB: crypto.randomUUID(),
 };
 
 const anamnese = {
@@ -59,6 +62,7 @@ appTeste.get('/documentos-clinicos/paciente/:clienteId', controller.listar);
 appTeste.get('/documentos-clinicos/:documentoId', controller.consultar);
 appTeste.post('/documentos-clinicos/:documentoId/revisoes', controller.revisar);
 appTeste.post('/documentos-clinicos/:documentoId/finalizar', controller.finalizar);
+appTeste.get('/prontuario/pacientes/:pacienteId/historico', timelineController.listar);
 appTeste.use(errorHandler);
 
 let documentoId = '';
@@ -124,6 +128,22 @@ before(async () => {
     await connection('clientes_areas').insert({
         cliente_id: ids.clienteA, area_negocio_id: ids.areaA, ativo: true,
     });
+    await connection('sessoes_clinicas').insert([
+        {
+            id: ids.sessaoA, organizacao_id: ids.orgA, area_negocio_id: ids.areaA,
+            cliente_id: ids.clienteA, profissional_id: ids.profA,
+            data_sessao: new Date('2026-11-18T14:00:00Z'),
+            evolucao: 'Evolucao ficticia sigilosa do titular',
+            procedimentos_realizados: 'Procedimentos ficticios',
+        },
+        {
+            id: ids.sessaoB, organizacao_id: ids.orgA, area_negocio_id: ids.areaA,
+            cliente_id: ids.clienteA, profissional_id: ids.profB,
+            data_sessao: new Date('2026-11-19T14:00:00Z'),
+            evolucao: 'Evolucao ficticia de outro profissional',
+            procedimentos_realizados: 'Procedimentos alheios ficticios',
+        },
+    ]);
 });
 
 after(async () => {
@@ -269,6 +289,99 @@ test('laudo eh guardado separadamente, sem assinatura automatica', async () => {
     assert.equal(leitura.body.data.versoes[0].conteudo.conclusao, laudo.conclusao);
 });
 
+test('linha do tempo agrega anamnese, laudo e evolucao sem textos sensiveis', async () => {
+    const resposta = await request(appTeste)
+        .get(`/prontuario/pacientes/${ids.clienteA}/historico`)
+        .set(headers(ids.userA))
+        .expect(200);
+
+    const entradas = resposta.body.data as Array<{
+        id: string; tipo: string; versao: number | null; estado: string | null;
+        data: string; profissional_id: string;
+    }>;
+
+    assert.equal(entradas.length, 3);
+    assert.deepEqual(
+        entradas.map((item) => item.tipo).sort(),
+        ['ANAMNESE', 'EVOLUCAO', 'LAUDO'],
+    );
+    assert.ok(entradas.every((item) => item.profissional_id === ids.profA));
+    assert.ok(entradas.some((item) => item.id === ids.sessaoA));
+    assert.ok(!entradas.some((item) => item.id === ids.sessaoB));
+    assert.deepEqual(
+        entradas.map((item) => item.data),
+        [...entradas.map((item) => item.data)].sort((a, b) => b.localeCompare(a)),
+    );
+
+    const atualAnamnese = entradas.find((item) => item.id === documentoId);
+    assert.equal(atualAnamnese?.versao, 4);
+    assert.equal(atualAnamnese?.estado, 'FINALIZADO');
+
+    const corpo = JSON.stringify(resposta.body);
+    assert.ok(!corpo.includes(anamnese.queixa_principal));
+    assert.ok(!corpo.includes(laudo.conclusao));
+    assert.ok(!corpo.includes('Evolucao ficticia sigilosa'));
+
+    const auditoria = await connection('registros_auditoria')
+        .where({
+            organizacao_id: ids.orgA,
+            usuario_id: ids.userA,
+            recurso: 'PRONTUARIO',
+            recurso_id: ids.clienteA,
+            acao: 'PRONTUARIO.LINHA_TEMPO_CONSULTADA',
+        })
+        .first('id');
+    assert.ok(auditoria);
+});
+
+test('linha do tempo nega administrativo e outro tenant, e nao cruza profissionais', async () => {
+    const outroProfissional = await request(appTeste)
+        .get(`/prontuario/pacientes/${ids.clienteA}/historico`)
+        .set(headers(ids.userB))
+        .expect(200);
+    assert.deepEqual(
+        outroProfissional.body.data.map((e: { id: string }) => e.id),
+        [ids.sessaoB],
+    );
+
+    await request(appTeste)
+        .get(`/prontuario/pacientes/${ids.clienteA}/historico`)
+        .set(headers(ids.admin))
+        .expect(403);
+
+    await request(appTeste)
+        .get(`/prontuario/pacientes/${ids.clienteA}/historico`)
+        .set(headers(ids.userA, ids.orgB, ids.areaB))
+        .expect(403);
+
+    await request(appTeste)
+        .get(`/prontuario/pacientes/${crypto.randomUUID()}/historico`)
+        .set(headers(ids.userA))
+        .expect(404);
+});
+
+test('linha do tempo valida o limite e nao permite enumeracao sem autenticacao', async () => {
+    await request(appTeste)
+        .get(`/prontuario/pacientes/${ids.clienteA}/historico`)
+        .expect(401);
+
+    const limite = await request(appTeste)
+        .get(`/prontuario/pacientes/${ids.clienteA}/historico?limite=1`)
+        .set(headers(ids.userA))
+        .expect(200);
+    assert.equal(limite.body.data.length, 1);
+
+    await request(appTeste)
+        .get(`/prontuario/pacientes/${ids.clienteA}/historico?limite=1000`)
+        .set(headers(ids.userA))
+        .expect(400);
+
+    await request(appTeste)
+        .get('/prontuario/pacientes/nao-e-uuid/historico')
+        .set(headers(ids.userA))
+        .expect(400);
+});
+
 test('historico documental rejeita DELETE e TRUNCATE fisico', async () => {
     await assert.rejects(
         connection.transaction(async (trx) => {
@@ -287,5 +400,14 @@ test('revogacao bloqueia leitura imediatamente', async () => {
     const resposta = await request(appTeste)
         .get(`/documentos-clinicos/${documentoId}`)
         .set(headers(ids.userA)).expect(403);
+    assert.equal(resposta.body.codigo, 'ACESSO_CLINICO_NEGADO');
+});
+
+
+test('revogacao bloqueia a linha do tempo imediatamente', async () => {
+    const resposta = await request(appTeste)
+        .get(`/prontuario/pacientes/${ids.clienteA}/historico`)
+        .set(headers(ids.userA))
+        .expect(403);
     assert.equal(resposta.body.codigo, 'ACESSO_CLINICO_NEGADO');
 });
