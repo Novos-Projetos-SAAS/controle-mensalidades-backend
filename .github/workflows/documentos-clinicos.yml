@@ -52,4 +52,4 @@ jobs:
       - name: Fluxo HTTP completo com profissionais e pacientes sintéticos
         run: node --env-file=.env.test --import tsx --test tests/modules/documentos_clinicos/documentos_clinicos.http_fluxos.test.ts
       - name: Garantir que rotas continuem bloqueadas
-        run: node --env-file=.env.test --import tsx --test tests/modules/sessoes_clinicas/sessoes_clinicas.routes.test.ts
+        run: node --env-file=.env.test --import tsx --test tests/modules/sessoes_clinicas/sessoes_clinicas.routes.test.ts tests/modules/documentos_clinicos/documentos_clinicos.routes.test.ts
