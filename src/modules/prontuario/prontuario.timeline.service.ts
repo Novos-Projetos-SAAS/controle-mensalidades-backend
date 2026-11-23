@@ -147,6 +147,7 @@ class LinhaTempoClinicaService {
 
             const versoes = documentos.length
                 ? await trx('versoes_registros_clinicos')
+                    .distinctOn('registro_id')
                     .select('registro_id', 'versao', 'estado')
                     .whereIn('registro_id', documentos.map((d) => d.id))
                     .where({
