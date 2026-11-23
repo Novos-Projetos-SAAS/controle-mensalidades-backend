@@ -8,6 +8,7 @@ import app from '../../../src/app.js';
 import connection from '../../../src/database/connection.js';
 import errorHandler from '../../../src/middlewares/errorHandler.middleware.js';
 import AppError from '../../../src/shared/errors/AppError.js';
+import prontuarioTimelineRoutes, { exigirHomologacaoProntuario } from '../../../src/modules/prontuario/prontuario.timeline.routes.js';
 import documentosClinicosRoutes, {
     exigirHomologacaoDocumental,
 } from '../../../src/modules/documentos_clinicos/documentos_clinicos.routes.js';
@@ -45,4 +46,26 @@ test('mesmo o roteador isolado exige usuario autenticado', async () => {
     isolado.use(errorHandler);
     const resposta = await request(isolado).get('/documentos-clinicos').expect(401);
     assert.equal(resposta.body.codigo, 'TOKEN_AUSENTE');
+});
+
+test('linha do tempo continua ausente de /api/v1 e bloqueada em roteador isolado', async () => {
+    const uri = '/api/v1/prontuario/pacientes/00000000-0000-4000-8000-000000000001/historico';
+    const publicada = await request(app).get(uri).expect(404);
+    assert.equal(publicada.body.codigo, 'ROTA_NAO_ENCONTRADA');
+
+    let bloqueio: unknown;
+    exigirHomologacaoProntuario({} as Request, {} as Response, (erro: unknown) => {
+        bloqueio = erro;
+    });
+    assert.ok(bloqueio instanceof AppError);
+    assert.equal(bloqueio.code, 'ACESSO_CLINICO_NAO_CONFIGURADO');
+    assert.equal(bloqueio.statusCode, 403);
+
+    const isolado = express();
+    isolado.use('/prontuario', prontuarioTimelineRoutes);
+    isolado.use(errorHandler);
+    const semToken = await request(isolado)
+        .get('/prontuario/pacientes/00000000-0000-4000-8000-000000000001/historico')
+        .expect(401);
+    assert.equal(semToken.body.codigo, 'TOKEN_AUSENTE');
 });
