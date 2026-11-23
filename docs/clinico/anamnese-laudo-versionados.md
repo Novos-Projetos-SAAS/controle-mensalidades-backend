@@ -50,3 +50,37 @@ O CI fica em `.github/workflows/documentos-clinicos.yml`. **Nao significa homolo
 4. Verificar seguranca dos logs, backup/restauracao, retencao e privacidade em homologacao.
 5. Projetar e homologar assinatura e emissao do laudo com identificacao profissional e integridade.
 6. Conectar interface real ao contrato somente apos autorizacao e homologacao de seguranca.
+
+
+## Linha do tempo unificada do prontuário (implementação preparatória)
+
+Novo serviço `src/modules/prontuario/prontuario.timeline.service.ts`, com controller,
+validator e roteador **não publicado**:
+
+`GET /prontuario/pacientes/:pacienteId/historico?limite=50`
+
+Requer cookie JWT, organização e área do contexto autenticado, além do vínculo
+`profissionais_areas.acesso_clinico_autorizado`; a própria sessão, anamnese
+e laudo ficam restritos ao **profissional responsável**. A listagem devolve
+apenas metadados mínimos: `id`, `tipo` (`ANAMNESE`, `LAUDO`, `EVOLUCAO`),
+`paciente_id`, `data`, `profissional_id`, `profissional_nome`, `titulo`,
+`versao` e `estado`. Para sessões, versão e estado são `null`. O limite
+aceito é de 1 a 100 itens e a ordenação é cronológica decrescente, com desempate
+por ID. Para ler o conteúdo, o cliente deverá consultar o endpoint específico
+de documento/sessão, que autoriza e audita novamente.
+
+A linha do tempo é montada dentro da mesma transação que registra a auditoria
+`PRONTUARIO.LINHA_TEMPO_CONSULTADA`, sem copiar textos clínicos ou CPF para os
+logs. Se a auditoria falhar, a consulta falha fechada. Os testes HTTP em app
+Express isolado verificam pacientes fictícios, duas identidades, tenant
+cruzado, admin sem autorização, limite, histórico, metadados sem conteúdo e
+revogação de acesso. A API real **continua sem essa rota montada** e o roteador
+possui seu próprio bloqueio explícito de homologação.
+
+### Limite intencional do acesso
+
+Esta primeira versão **não é um prontuário compartilhado entre fisioterapeutas**.
+Cada profissional vê somente seus próprios registros do paciente. A matriz de
+permissões para compartilhamento, substituição de profissional, delegação e
+custódia de registros precisa de decisão clínica e homologação independente.
+Não conceder acesso administrativo implícito.
