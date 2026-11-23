@@ -25,10 +25,11 @@ const operacoesEsperadas: Record<string, string[]> = {
     '/auth/login': ['post'],
     '/auth/me': ['get'],
     '/auth/logout': ['post'],
-    '/areas-negocio': ['get'],
+    '/areas-negocio': ['get', 'post'],
     '/areas-negocio/{areaNegocioId}/modulos': ['get'],
     '/modulos': ['get'],
     '/contexto': ['get'],
+    '/organizacoes': ['post'],
     '/organizacoes/atual': ['get', 'patch'],
     '/usuarios': ['get', 'post'],
     '/usuarios/{usuarioId}': ['patch'],
@@ -65,7 +66,7 @@ const operacoesEsperadas: Record<string, string[]> = {
 };
 
 const rotasOrganizacionais = Object.keys(operacoesEsperadas).filter(
-    (rota) => !rota.startsWith('/auth') && rota !== '/health',
+    (rota) => !rota.startsWith('/auth') && rota !== '/health' && rota !== '/organizacoes',
 );
 
 function resolverParametro(parametro: ObjetoJson) {
@@ -110,6 +111,21 @@ test('OpenAPI deve documentar exatamente todas as operações registradas na API
     for (const [rota, metodos] of Object.entries(operacoesEsperadas)) {
         assert.deepEqual(Object.keys(documento.paths[rota] ?? {}).sort(), metodos.sort(), rota);
     }
+});
+
+test('OpenAPI documenta criação de organização e área sem elevar permissões indevidas', () => {
+    const organizacao = documento.paths['/organizacoes']?.post;
+    const area = documento.paths['/areas-negocio']?.post;
+    assert.ok(organizacao);
+    assert.ok(area);
+    assert.equal(possuiParametro(organizacao, 'x-organizacao-id'), false);
+    assert.equal(possuiParametro(area, 'x-organizacao-id'), true);
+    assert.deepEqual(organizacao.security, [{ cookieAuth: [] }]);
+    assert.deepEqual(area.security, [{ cookieAuth: [] }]);
+    assert.ok(organizacao.requestBody);
+    assert.ok(area.requestBody);
+    assert.ok(organizacao.responses?.['201']);
+    assert.ok(area.responses?.['201']);
 });
 
 test('OpenAPI deve representar autenticação exclusivamente pelo cookie token', () => {

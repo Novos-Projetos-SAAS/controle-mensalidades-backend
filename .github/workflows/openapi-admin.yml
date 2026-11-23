@@ -1,0 +1,20 @@
+name: OpenAPI administrativo - testes sem banco
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  openapi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: node --import tsx --test tests/documentation/openapi.test.ts
+      - run: npm run lint
