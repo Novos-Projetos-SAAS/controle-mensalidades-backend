@@ -28,3 +28,25 @@ Toda revisao gera nova linha (numeracao crescente). Primeira revisao e INICIAL; 
 - A migration 068 depende da 067 no PR backend #8, portanto **nao mesclar isoladamente na main** antes da revisao da base.
 
 Status: estrutura proposta e commitada; ainda **nao homologada nem testada em banco real**, sem endpoints publicados.
+
+
+## Incremento: contratos HTTP isolados e fluxos transacionais
+
+Foram acrescentados os modulos `src/modules/documentos_clinicos`:
+- `validator`: anamnese/laudo com campos estritos, versoes e justificativa;
+- `service`: CRUD de **versoes por INSERT**, restricao a profissional identificado por permissao clinica explicita, consulta por titular, escopo de paciente, checagem de concorrencia por `ultima_versao_esperada`, auditoria transacional de criacao/leitura/listagem/revisao/finalizacao;
+- `controller`: respostas HTTP e contexto autenticado do middleware;
+- `routes`: seguranca fail-closed, **nao montadas** em `/api/v1` e protegidas por `ACESSO_CLINICO_NAO_CONFIGURADO`.
+
+O fluxo HTTP completo foi ensaiado **somente em app Express de teste isolado**, com JWTs e dados sinteticos em PostgreSQL 16 descartavel `prontuario_ficticio`: criacao, consultas, separacao profissional/organizacao, negacao de administrador sem acesso clinico, conflito de versao, finalizacao, adendo, historico imutavel, revogacao de permissoes e trilha de auditoria. O teste impede execucao em host de banco remoto.
+
+O CI fica em `.github/workflows/documentos-clinicos.yml`. **Nao significa homologacao do Neon**, nem autoriza publicacao em um sistema de atendimento. O frontend de treinamento tem estado em memoria e nao consome este contrato ainda.
+
+### Pendencias para liberacao
+
+1. Operar a role do runtime sem grants destrutivos e validar triggers e imutabilidade com essa role.
+2. Verificar ACL do paciente com profissional e eventuais relacionamentos de tratamento, compartilhamento clinico consentido e regras especificas de acesso.
+3. Testar revogacao simultanea / isolamento e auditoria com carga e concorrencia.
+4. Verificar seguranca dos logs, backup/restauracao, retencao e privacidade em homologacao.
+5. Projetar e homologar assinatura e emissao do laudo com identificacao profissional e integridade.
+6. Conectar interface real ao contrato somente apos autorizacao e homologacao de seguranca.
