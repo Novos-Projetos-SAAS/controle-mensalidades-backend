@@ -1,0 +1,76 @@
+name: Limpeza auditada e pontual das branches backend
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+  pull-requests: read
+jobs:
+  limpar:
+    if: "${{ startsWith(github.event.head_commit.message, 'chore(branches): limpeza auditada do backend') }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Remover somente refs antigos e congelados
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const expected = {
+              "codex/clientes-mascaras-cpf": "de9c495c63c81b4a3bb949bc4541060ae95b7a19",
+              "codex/cpf-backfill-desenv": "86e84530c943cd6a5c6b420a97af859a6c1f1b3e",
+              "codex/cpf-criptografia-fase1": "a071c69820382cbe62565283cc11f63a0bc95b8a",
+              "codex/cpf-homologacao": "b60bf8795ec30d3be21563998e937324e25eef5b",
+              "codex/organizacoes-areas": "286a56357e01f7220a20d41023d586e20ea671e3",
+              "codex/whatsapp-etapa-01": "be261c583ac79ec822222e6af4eda0d53ae7fd4c",
+              "review/ci-admin-main-backend-20261122": "1be76e2a8b93007b9fba81916932811703c49e76",
+              "review/cpf-isolado-20261121": "b5e113bda1f2e0f2db6014a9f43ec4dcbef7e2d0",
+              "review/cpf-preflight-readonly-20261122": "a8dc702ce88c58de0945fd92109de5f687994b2a",
+              "review/financeiro-indicadores-20261122": "2742503531113a5a6be18665f9b293ce306f215d",
+              "review/organizacoes-areas-20261122": "e51e909bb523ef3625a346fd421c9042cc355818",
+              "review/whatsapp-isolado-20261121": "0c98c2482f06b5cdb807913b59bd729ccc895c04",
+              "review/openapi-admin-isolado-20261122": "86ed1a4ba7d0c260fadb6d00e2e7425af7cc8cdd"
+            };
+            const { owner, repo } = context.repo;
+            const protectedNames = new Set([
+              'main', 'codex/infinitepay-integration',
+              'review/fisioterapia-evolucao-estruturada-20261122'
+            ]);
+            const selfBranch = 'review/limpeza-branches-backend-20261122';
+            const pulls = (await github.rest.pulls.list({
+              owner, repo, state: 'closed', per_page: 100,
+            })).data;
+            const self = pulls.find(p =>
+              p.head.ref === selfBranch && p.merged_at && p.merge_commit_sha === context.sha
+            );
+            if (self) expected[selfBranch] = self.head.sha;
+            let removed = 0;
+            const errors = [];
+            for (const [name, sha] of Object.entries(expected)) {
+              if (protectedNames.has(name) || !/^(codex|review)\/[a-z0-9_\/-]+$/.test(name)) {
+                errors.push(name + ': nome não permitido');
+                continue;
+              }
+              try {
+                const current = await github.rest.git.getRef({ owner, repo, ref: 'heads/' + name });
+                if (current.data.object.sha !== sha) {
+                  errors.push(name + ': hash alterado; não apagar');
+                  continue;
+                }
+                const active = (await github.rest.pulls.list({
+                  owner, repo, state: 'open', head: owner + ':' + name, per_page: 5,
+                })).data;
+                if (active.length) {
+                  errors.push(name + ': possui PR aberto; não apagar');
+                  continue;
+                }
+                await github.rest.git.deleteRef({ owner, repo, ref: 'heads/' + name });
+                core.info('Excluída branch confirmada: ' + name);
+                removed++;
+              } catch (error) {
+                if (error.status === 404) core.info(name + ': já removida');
+                else errors.push(name + ': não removida (' + (error.status || 'erro') + ')');
+              }
+            }
+            core.info('Branches efetivamente removidas: ' + removed);
+            for (const message of errors) core.warning(message);
+            if (errors.length) core.setFailed(errors.length + ' branches não puderam ser removidas.');
