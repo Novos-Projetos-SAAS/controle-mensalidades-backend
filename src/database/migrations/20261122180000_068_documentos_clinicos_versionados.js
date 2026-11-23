@@ -102,8 +102,13 @@ export async function up(knex) {
                 IF NEW.versao <> ultima.versao + 1 OR NEW.natureza = 'INICIAL' THEN
                     RAISE EXCEPTION 'Numero ou natureza de versao invalido';
                 END IF;
-                IF ultima.estado = 'FINALIZADO' AND NEW.natureza <> 'ADENDO' THEN
-                    RAISE EXCEPTION 'Documento finalizado so aceita adendos';
+                IF ultima.estado = 'FINALIZADO' THEN
+                    IF NEW.natureza <> 'ADENDO' OR NEW.estado <> 'FINALIZADO' THEN
+                        RAISE EXCEPTION 'Documento finalizado so aceita adendos finalizados';
+                    END IF;
+                END IF;
+                IF ultima.estado = 'RASCUNHO' AND NEW.natureza = 'ADENDO' THEN
+                    RAISE EXCEPTION 'Rascunho exige revisao, nao adendo';
                 END IF;
             END IF;
             RETURN NEW;
