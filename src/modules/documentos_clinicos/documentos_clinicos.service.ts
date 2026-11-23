@@ -59,8 +59,8 @@ function conflitoVersao() {
 class DocumentosClinicosService {
     private async transacao<T>(fn: (trx: Knex.Transaction) => Promise<T>): Promise<T> {
         return connection.transaction(async (trx) => {
-            await trx.raw('SET LOCAL statement_timeout = ?', [8000]);
-            await trx.raw('SET LOCAL lock_timeout = ?', [3000]);
+            await trx.raw("SET LOCAL statement_timeout = '8s'");
+            await trx.raw("SET LOCAL lock_timeout = '3s'");
             return fn(trx);
         });
     }
