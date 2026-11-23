@@ -456,6 +456,31 @@ const openApiDocument = {
                     ...erros('400', '401', '403'),
                 },
             },
+            post: {
+                tags: ['Áreas de negócio'],
+                summary: 'Criar área na organização selecionada',
+                description:
+                    'Exige perfil ADMINISTRADOR e cabeçalho x-organizacao-id. Não habilita módulos clínicos.',
+                operationId: 'criarAreaNegocio',
+                security: segurancaCookie,
+                parameters: [parametroOrganizacao],
+                requestBody: corpoJson({
+                    type: 'object',
+                    required: ['nome'],
+                    additionalProperties: false,
+                    properties: {
+                        nome: { type: 'string', minLength: 2, maxLength: 100 },
+                        codigo: { type: 'string', pattern: '^[A-Z0-9][A-Z0-9_]{1,49}$' },
+                    },
+                }),
+                responses: {
+                    '201': respostaJson('Área de negócio criada.', {
+                        type: 'object',
+                        additionalProperties: true,
+                    }),
+                    ...erros('400', '401', '403', '404', '409'),
+                },
+            },
         },
         '/areas-negocio/{areaNegocioId}/modulos': {
             get: {
@@ -499,6 +524,43 @@ const openApiDocument = {
                 responses: {
                     '200': respostaJson('Contexto resolvido.', referencia('RespostaContexto')),
                     ...erros('400', '401', '403', '404'),
+                },
+            },
+        },
+        '/organizacoes': {
+            post: {
+                tags: ['Organizações'],
+                summary: 'Criar uma organização própria com área inicial',
+                description:
+                    'Exige login, mas não exige x-organizacao-id. O usuário autenticado torna-se ADMINISTRADOR somente da organização criada. Módulos clínicos não são habilitados.',
+                operationId: 'criarOrganizacaoPropria',
+                security: segurancaCookie,
+                requestBody: corpoJson({
+                    type: 'object',
+                    required: ['nome', 'areaInicial'],
+                    additionalProperties: false,
+                    properties: {
+                        nome: { type: 'string', minLength: 2, maxLength: 150 },
+                        areaInicial: {
+                            type: 'object',
+                            required: ['nome'],
+                            additionalProperties: false,
+                            properties: {
+                                nome: { type: 'string', minLength: 2, maxLength: 100 },
+                                codigo: {
+                                    type: 'string',
+                                    pattern: '^[A-Z0-9][A-Z0-9_]{1,49}$',
+                                },
+                            },
+                        },
+                    },
+                }),
+                responses: {
+                    '201': respostaJson('Organização e área inicial criadas.', {
+                        type: 'object',
+                        additionalProperties: true,
+                    }),
+                    ...erros('400', '401'),
                 },
             },
         },
