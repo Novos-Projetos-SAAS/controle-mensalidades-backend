@@ -195,12 +195,10 @@ class DocumentosClinicosService {
             const identidade = await this.profissional(contexto, trx);
             const registro = await this.buscarRegistro(contexto, identidade.profissionalId, id, trx);
             const versoes = await trx<Versao>('versoes_registros_clinicos')
-                .where({
-                    registro_id: id,
-                    organizacao_id: contexto.organizacaoId,
-                    area_negocio_id: contexto.areaNegocioId,
-                    cliente_id: registro.cliente_id,
-                })
+                .where('registro_id', id)
+                .andWhere('organizacao_id', contexto.organizacaoId)
+                .andWhere('area_negocio_id', contexto.areaNegocioId)
+                .andWhere('cliente_id', registro.cliente_id)
                 .orderBy('versao', 'asc');
             await this.auditar(trx, contexto, id, 'DOCUMENTO_CLINICO.CONSULTADO', meta);
             return { registro, versoes };
