@@ -81,5 +81,6 @@ export function validarClienteClinicoId(valor: unknown): string {
 }
 
 export function validarConteudoParaTipo(tipo: 'ANAMNESE' | 'LAUDO', valor: unknown) {
-    return validar(tipo === 'ANAMNESE' ? anamnese : laudo, valor);
+    if (tipo === 'ANAMNESE') return validar(anamnese, valor);
+    return validar(laudo, valor);
 }
