@@ -602,6 +602,13 @@ test('revogacao administrativa corta leitura e adendos mesmo com perfil clinico 
         .send({ motivo: 'Fim do tratamento ficticio' })
         .expect(200);
 
+    const pacientesAposRevogacao = await request(appTeste)
+        .get('/prontuario/pacientes')
+        .set(headers(ids.userA)).expect(200);
+    assert.deepEqual(pacientesAposRevogacao.body.data.items, [
+        { id: ids.clienteB, nome: 'Paciente Exemplo B' },
+    ]);
+
     const resposta = await request(appTeste)
         .get(`/documentos-clinicos/${documentoId}`)
         .set(headers(ids.userA))
