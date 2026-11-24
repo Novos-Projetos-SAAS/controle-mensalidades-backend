@@ -16,6 +16,7 @@ import verifyUser from '../../../src/middlewares/verifyUser.middleware.js';
 import contextoArea from '../../../src/modules/contexto/contextoArea.middleware.js';
 import controller from '../../../src/modules/documentos_clinicos/documentos_clinicos.controller.js';
 import timelineController from '../../../src/modules/prontuario/prontuario.timeline.controller.js';
+import pacientesVinculadosController from '../../../src/modules/prontuario/prontuario.pacientes.controller.js';
 import vinculosController from '../../../src/modules/vinculos_clinicos/vinculos_clinicos.controller.js';
 import sessoesController from '../../../src/modules/sessoes_clinicas/sessoes_clinicas.controller.js';
 
@@ -34,6 +35,7 @@ const ids = {
     profA: crypto.randomUUID(),
     profB: crypto.randomUUID(),
     clienteA: crypto.randomUUID(),
+    clienteB: crypto.randomUUID(),
     sessaoA: crypto.randomUUID(),
     sessaoB: crypto.randomUUID(),
 };
@@ -64,6 +66,7 @@ appTeste.get('/documentos-clinicos/paciente/:clienteId', controller.listar);
 appTeste.get('/documentos-clinicos/:documentoId', controller.consultar);
 appTeste.post('/documentos-clinicos/:documentoId/revisoes', controller.revisar);
 appTeste.post('/documentos-clinicos/:documentoId/finalizar', controller.finalizar);
+appTeste.get('/prontuario/pacientes', pacientesVinculadosController.listar);
 appTeste.get('/prontuario/pacientes/:pacienteId/historico', timelineController.listar);
 appTeste.get('/sessoes-clinicas/:sessaoClinicaId', sessoesController.buscarPorId);
 appTeste.post('/sessoes-clinicas', sessoesController.criar);
@@ -131,12 +134,14 @@ before(async () => {
         { profissional_id: ids.profA, area_negocio_id: ids.areaA, ativo: true, acesso_clinico_autorizado: true },
         { profissional_id: ids.profB, area_negocio_id: ids.areaA, ativo: true, acesso_clinico_autorizado: true },
     ]);
-    await connection('clientes').insert({
-        id: ids.clienteA, organizacao_id: ids.orgA, nome: 'Paciente totalmente ficticio', ativo: true,
-    });
-    await connection('clientes_areas').insert({
-        cliente_id: ids.clienteA, area_negocio_id: ids.areaA, ativo: true,
-    });
+    await connection('clientes').insert([
+        { id: ids.clienteA, organizacao_id: ids.orgA, nome: 'Paciente Exemplo A', ativo: true },
+        { id: ids.clienteB, organizacao_id: ids.orgA, nome: 'Paciente Exemplo B', ativo: true },
+    ]);
+    await connection('clientes_areas').insert([
+        { cliente_id: ids.clienteA, area_negocio_id: ids.areaA, ativo: true },
+        { cliente_id: ids.clienteB, area_negocio_id: ids.areaA, ativo: true },
+    ]);
     await connection('sessoes_clinicas').insert([
         {
             id: ids.sessaoA, organizacao_id: ids.orgA, area_negocio_id: ids.areaA,
@@ -205,6 +210,17 @@ test('profissional habilitado mas SEM vinculo nao acessa paciente', async () => 
         .expect(404);
 });
 
+test('lista somente pacientes vinculados antes de qualquer concessao', async () => {
+    const resposta = await request(appTeste).get('/prontuario/pacientes')
+        .set(headers(ids.userA)).expect(200);
+    assert.deepEqual(resposta.body.data, {
+        items: [], pagina: 1, limite: 20, temMais: false,
+    });
+    await request(appTeste).get('/prontuario/pacientes').expect(401);
+    await request(appTeste).get('/prontuario/pacientes')
+        .set(headers(ids.admin)).expect(403);
+});
+
 test('somente administrador da organizacao concede vinculos com auditoria', async () => {
     await request(appTeste)
         .post('/vinculos-clinicos')
@@ -238,6 +254,56 @@ test('somente administrador da organizacao concede vinculos com auditoria', asyn
         .where({ recurso_id: vinculoA, acao: 'VINCULO_CLINICO.CONCEDIDO' })
         .first('id');
     assert.ok(auditoria);
+});
+
+test('somente pacientes de cada profissional aparecem, sem CPF ou evolucao', async () => {
+    const pacienteExtra = await request(appTeste)
+        .post('/vinculos-clinicos')
+        .set(headers(ids.admin))
+        .send({ cliente_id: ids.clienteB, profissional_id: ids.profA })
+        .expect(201);
+    assert.ok(pacienteExtra.body.data.id);
+
+    const listaA = await request(appTeste)
+        .get('/prontuario/pacientes?pagina=1&limite=1')
+        .set(headers(ids.userA)).expect(200);
+    assert.deepEqual(listaA.body.data.items, [
+        { id: ids.clienteA, nome: 'Paciente Exemplo A' },
+    ]);
+    assert.equal(listaA.body.data.temMais, true);
+
+    const segundaPagina = await request(appTeste)
+        .get('/prontuario/pacientes?pagina=2&limite=1')
+        .set(headers(ids.userA)).expect(200);
+    assert.deepEqual(segundaPagina.body.data.items, [
+        { id: ids.clienteB, nome: 'Paciente Exemplo B' },
+    ]);
+    assert.equal(segundaPagina.body.data.temMais, false);
+
+    const listaB = await request(appTeste)
+        .get('/prontuario/pacientes')
+        .set(headers(ids.userB)).expect(200);
+    assert.deepEqual(listaB.body.data.items, [
+        { id: ids.clienteA, nome: 'Paciente Exemplo A' },
+    ]);
+
+    for (const query of [
+        '?pagina=0', '?limite=51', '?pagina=101', '?limite=abc', '?busca=nome',
+    ]) {
+        await request(appTeste).get('/prontuario/pacientes' + query)
+            .set(headers(ids.userA)).expect(400);
+    }
+    await request(appTeste).get('/prontuario/pacientes')
+        .set(headers(ids.userA, ids.orgB, ids.areaB)).expect(403);
+
+    const registroAuditoria = await connection('registros_auditoria').where({
+        acao: 'PRONTUARIO.PACIENTES_VINCULADOS_LISTADOS',
+        usuario_id: ids.userA,
+    }).first('id', 'dados_contexto');
+    assert.ok(registroAuditoria);
+    assert.ok(!JSON.stringify(registroAuditoria.dados_contexto).includes(ids.clienteA));
+    assert.ok(!JSON.stringify(listaA.body).includes('cpf'));
+    assert.ok(!JSON.stringify(listaA.body).includes('evolucao'));
 });
 
 test('banco bloqueia tenant cruzado, exclusao e alteracao de titularidade de vinculo', async () => {
