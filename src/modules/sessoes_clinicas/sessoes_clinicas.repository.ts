@@ -149,6 +149,12 @@ function consultaClinicaAutorizada(
                 'sc.area_negocio_id',
             );
         })
+        .innerJoin('vinculos_clinicos_pacientes as vc', function () {
+            this.on('vc.organizacao_id', '=', 'sc.organizacao_id')
+                .andOn('vc.area_negocio_id', '=', 'sc.area_negocio_id')
+                .andOn('vc.cliente_id', '=', 'sc.cliente_id')
+                .andOn('vc.profissional_id', '=', 'sc.profissional_id');
+        })
         .innerJoin('usuarios as u', 'u.id', 'p.usuario_id')
         .innerJoin('usuarios_organizacoes as uo', function () {
             this.on('uo.usuario_id', '=', 'u.id').andOn(
@@ -178,6 +184,7 @@ function consultaClinicaAutorizada(
             'o.ativo': true,
         })
         .whereNull('sc.deletado_em')
+        .whereNull('vc.revogado_em')
         .whereNull('p.deletado_em')
         .whereNull('pa.deletado_em')
         .whereNull('u.deletado_em')
