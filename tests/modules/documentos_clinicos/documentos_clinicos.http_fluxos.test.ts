@@ -240,6 +240,36 @@ test('somente administrador da organizacao concede vinculos com auditoria', asyn
     assert.ok(auditoria);
 });
 
+test('banco bloqueia tenant cruzado, exclusao e alteracao de titularidade de vinculo', async () => {
+    await assert.rejects(
+        connection('vinculos_clinicos_pacientes').insert({
+            organizacao_id: ids.orgA,
+            area_negocio_id: ids.areaB,
+            cliente_id: ids.clienteA,
+            profissional_id: ids.profA,
+            concedido_por_usuario_id: ids.admin,
+        }),
+        (erro: unknown) => typeof erro === 'object' && erro !== null && 'code' in erro && erro.code === 'P0001',
+    );
+
+    await assert.rejects(
+        connection('vinculos_clinicos_pacientes')
+            .where('id', vinculoA)
+            .update({ cliente_id: crypto.randomUUID() }),
+        (erro: unknown) => typeof erro === 'object' && erro !== null && 'code' in erro && erro.code === 'P0001',
+    );
+
+    await assert.rejects(
+        connection('vinculos_clinicos_pacientes').where('id', vinculoA).delete(),
+        (erro: unknown) => typeof erro === 'object' && erro !== null && 'code' in erro && erro.code === 'P0001',
+    );
+
+    await assert.rejects(
+        connection.raw('TRUNCATE TABLE vinculos_clinicos_pacientes'),
+        (erro: unknown) => typeof erro === 'object' && erro !== null && 'code' in erro && erro.code === 'P0001',
+    );
+});
+
 test('fisioterapeuta cria anamnese e auditoria atomica', async () => {
     const resposta = await request(appTeste)
         .post('/documentos-clinicos')
