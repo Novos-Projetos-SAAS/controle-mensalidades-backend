@@ -66,6 +66,7 @@ appTeste.get('/documentos-clinicos/paciente/:clienteId', controller.listar);
 appTeste.get('/documentos-clinicos/:documentoId', controller.consultar);
 appTeste.post('/documentos-clinicos/:documentoId/revisoes', controller.revisar);
 appTeste.post('/documentos-clinicos/:documentoId/finalizar', controller.finalizar);
+appTeste.get('/prontuario/identidade', pacientesVinculadosController.identidade);
 appTeste.get('/prontuario/pacientes', pacientesVinculadosController.listar);
 appTeste.get('/prontuario/pacientes/:pacienteId/historico', timelineController.listar);
 appTeste.get('/sessoes-clinicas/:sessaoClinicaId', sessoesController.buscarPorId);
@@ -208,6 +209,18 @@ test('profissional habilitado mas SEM vinculo nao acessa paciente', async () => 
             evolucao: 'Evolucao ficticia sem vinculo clinico',
         })
         .expect(404);
+});
+
+test('identidade clinica e derivada do usuario, sem ID enviado pelo navegador', async () => {
+    const a = await request(appTeste).get('/prontuario/identidade')
+        .set(headers(ids.userA)).expect(200);
+    assert.deepEqual(a.body.data, { profissional_id: ids.profA });
+    const b = await request(appTeste).get('/prontuario/identidade')
+        .set(headers(ids.userB)).expect(200);
+    assert.deepEqual(b.body.data, { profissional_id: ids.profB });
+    await request(appTeste).get('/prontuario/identidade').expect(401);
+    await request(appTeste).get('/prontuario/identidade')
+        .set(headers(ids.admin)).expect(403);
 });
 
 test('lista somente pacientes vinculados antes de qualquer concessao', async () => {
