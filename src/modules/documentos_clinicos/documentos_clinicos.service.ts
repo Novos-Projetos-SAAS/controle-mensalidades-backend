@@ -2,6 +2,7 @@ import type { Knex } from 'knex';
 import connection from '../../database/connection.js';
 import AppError from '../../shared/errors/AppError.js';
 import autorizacaoClinicaService from '../sessoes_clinicas/autorizacao_clinica.service.js';
+import { exigirVinculoPacienteProfissional } from '../vinculos_clinicos/vinculos_clinicos.autorizacao.js';
 import {
     validarConteudoParaTipo,
     type NovoDocumentoClinico,
@@ -107,6 +108,12 @@ class DocumentosClinicosService {
         if (bloquear) consulta.forUpdate();
         const registro = await consulta.first();
         if (!registro) throw naoEncontrado();
+        await exigirVinculoPacienteProfissional(trx, {
+            organizacaoId: contexto.organizacaoId,
+            areaNegocioId: contexto.areaNegocioId,
+            profissionalId,
+            clienteId: registro.cliente_id,
+        });
         return registro;
     }
 
@@ -146,6 +153,12 @@ class DocumentosClinicosService {
         return this.transacao(async (trx) => {
             const identidade = await this.profissional(contexto, trx);
             await this.paciente(contexto, dados.cliente_id, trx);
+            await exigirVinculoPacienteProfissional(trx, {
+                organizacaoId: contexto.organizacaoId,
+                areaNegocioId: contexto.areaNegocioId,
+                profissionalId: identidade.profissionalId,
+                clienteId: dados.cliente_id,
+            });
             const [registro] = await trx<Registro>('registros_clinicos_documentais').insert({
                 organizacao_id: contexto.organizacaoId,
                 area_negocio_id: contexto.areaNegocioId,
@@ -175,6 +188,12 @@ class DocumentosClinicosService {
         return this.transacao(async (trx) => {
             const identidade = await this.profissional(contexto, trx);
             await this.paciente(contexto, clienteId, trx);
+            await exigirVinculoPacienteProfissional(trx, {
+                organizacaoId: contexto.organizacaoId,
+                areaNegocioId: contexto.areaNegocioId,
+                profissionalId: identidade.profissionalId,
+                clienteId,
+            });
             const documentos = await trx<Registro>('registros_clinicos_documentais')
                 .select('id', 'tipo', 'cliente_id', 'profissional_id', 'criado_em')
                 .where({
