@@ -23,6 +23,29 @@ export type ListagemPacientesVinculados = {
 };
 
 class PacientesVinculadosService {
+    async identidade(contexto: ContextoPacientesClinicos, requestId?: string) {
+        return connection.transaction(async (trx: Knex.Transaction) => {
+            await aplicarTimeoutsTransacaoClinica(trx);
+            const identidade = await autorizacaoClinicaService.identificarProfissional(
+                contexto.usuarioId, contexto.organizacaoId, contexto.areaNegocioId, trx, true,
+            );
+            try {
+                await trx('registros_auditoria').insert({
+                    organizacao_id: contexto.organizacaoId,
+                    area_negocio_id: contexto.areaNegocioId,
+                    usuario_id: contexto.usuarioId,
+                    acao: 'PRONTUARIO.IDENTIDADE_PROFISSIONAL_CONSULTADA',
+                    recurso: 'PRONTUARIO',
+                    recurso_id: null,
+                    dados_contexto: { ...(requestId ? { requestId } : {}) },
+                });
+            } catch {
+                throw new AppError('Auditoria clínica indisponível.', 503, 'AUDITORIA_CLINICA_INDISPONIVEL');
+            }
+            return { profissional_id: identidade.profissionalId };
+        });
+    }
+
     async listar(
         contexto: ContextoPacientesClinicos,
         pagina: number,
