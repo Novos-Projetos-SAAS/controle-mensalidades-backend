@@ -16,6 +16,7 @@ import verifyUser from '../../../src/middlewares/verifyUser.middleware.js';
 import contextoArea from '../../../src/modules/contexto/contextoArea.middleware.js';
 import controller from '../../../src/modules/documentos_clinicos/documentos_clinicos.controller.js';
 import timelineController from '../../../src/modules/prontuario/prontuario.timeline.controller.js';
+import vinculosController from '../../../src/modules/vinculos_clinicos/vinculos_clinicos.controller.js';
 
 // Este teste é exclusivo de uma instancia LOCAL DESCARTAVEL.
 // NUNCA executar contra Neon, bancos compartilhados ou producao.
@@ -63,10 +64,15 @@ appTeste.get('/documentos-clinicos/:documentoId', controller.consultar);
 appTeste.post('/documentos-clinicos/:documentoId/revisoes', controller.revisar);
 appTeste.post('/documentos-clinicos/:documentoId/finalizar', controller.finalizar);
 appTeste.get('/prontuario/pacientes/:pacienteId/historico', timelineController.listar);
+appTeste.post('/vinculos-clinicos', vinculosController.conceder);
+appTeste.get('/vinculos-clinicos/paciente/:clienteId', vinculosController.listar);
+appTeste.post('/vinculos-clinicos/:vinculoId/revogar', vinculosController.revogar);
 appTeste.use(errorHandler);
 
 let documentoId = '';
 let laudoId = '';
+let vinculoA = '';
+let vinculoB = '';
 
 function exigirIsolamentoLocal() {
     if (process.env.NODE_ENV !== 'test' || process.env.AMBIENTE_BANCO !== 'teste') {
@@ -164,6 +170,55 @@ test('administrador sem vinculo clinico recebe 403', async () => {
         .send({ tipo: 'ANAMNESE', cliente_id: ids.clienteA, conteudo: anamnese })
         .expect(403);
     assert.equal(resposta.body.codigo, 'ACESSO_CLINICO_NEGADO');
+});
+
+test('profissional habilitado mas SEM vinculo nao acessa paciente', async () => {
+    const criacao = await request(appTeste)
+        .post('/documentos-clinicos')
+        .set(headers(ids.userA))
+        .send({ tipo: 'ANAMNESE', cliente_id: ids.clienteA, conteudo: anamnese })
+        .expect(404);
+    assert.equal(criacao.body.codigo, 'PACIENTE_CLINICO_NAO_ENCONTRADO');
+
+    await request(appTeste)
+        .get(`/prontuario/pacientes/${ids.clienteA}/historico`)
+        .set(headers(ids.userA))
+        .expect(404);
+});
+
+test('somente administrador da organizacao concede vinculos com auditoria', async () => {
+    await request(appTeste)
+        .post('/vinculos-clinicos')
+        .set(headers(ids.userA))
+        .send({ cliente_id: ids.clienteA, profissional_id: ids.profA })
+        .expect(403);
+    const a = await request(appTeste)
+        .post('/vinculos-clinicos')
+        .set(headers(ids.admin))
+        .send({ cliente_id: ids.clienteA, profissional_id: ids.profA })
+        .expect(201);
+    vinculoA = a.body.data.id as string;
+    assert.ok(vinculoA);
+
+    const b = await request(appTeste)
+        .post('/vinculos-clinicos')
+        .set(headers(ids.admin))
+        .send({ cliente_id: ids.clienteA, profissional_id: ids.profB })
+        .expect(201);
+    vinculoB = b.body.data.id as string;
+    assert.ok(vinculoB);
+
+    const duplicado = await request(appTeste)
+        .post('/vinculos-clinicos')
+        .set(headers(ids.admin))
+        .send({ cliente_id: ids.clienteA, profissional_id: ids.profA })
+        .expect(409);
+    assert.equal(duplicado.body.codigo, 'VINCULO_CLINICO_DUPLICADO');
+
+    const auditoria = await connection('registros_auditoria')
+        .where({ recurso_id: vinculoA, acao: 'VINCULO_CLINICO.CONCEDIDO' })
+        .first('id');
+    assert.ok(auditoria);
 });
 
 test('fisioterapeuta cria anamnese e auditoria atomica', async () => {
@@ -391,6 +446,65 @@ test('historico documental rejeita DELETE e TRUNCATE fisico', async () => {
         }),
         (e: unknown) => typeof e === 'object' && e !== null && 'code' in e && e.code === 'P0001',
     );
+});
+
+test('revogacao administrativa corta leitura e adendos mesmo com perfil clinico ativo', async () => {
+    await request(appTeste)
+        .post(`/vinculos-clinicos/${vinculoA}/revogar`)
+        .set(headers(ids.userA))
+        .send({ motivo: 'Revogacao ficticia solicitada' })
+        .expect(403);
+
+    await request(appTeste)
+        .post(`/vinculos-clinicos/${vinculoA}/revogar`)
+        .set(headers(ids.admin))
+        .send({ motivo: 'Fim do tratamento ficticio' })
+        .expect(200);
+
+    const resposta = await request(appTeste)
+        .get(`/documentos-clinicos/${documentoId}`)
+        .set(headers(ids.userA))
+        .expect(404);
+    assert.equal(resposta.body.codigo, 'PACIENTE_CLINICO_NAO_ENCONTRADO');
+
+    await request(appTeste)
+        .get(`/documentos-clinicos/paciente/${ids.clienteA}`)
+        .set(headers(ids.userA)).expect(404);
+    await request(appTeste)
+        .get(`/prontuario/pacientes/${ids.clienteA}/historico`)
+        .set(headers(ids.userA)).expect(404);
+
+    await request(appTeste)
+        .post(`/documentos-clinicos/${documentoId}/revisoes`)
+        .set(headers(ids.userA))
+        .send({
+            natureza: 'ADENDO',
+            conteudo: anamnese,
+            justificativa: 'Complemento ficticio sem acesso',
+            ultima_versao_esperada: 4,
+        }).expect(404);
+
+    // Revogar A nao altera o atendimento atribuido ao profissional B.
+    const outro = await request(appTeste)
+        .get(`/prontuario/pacientes/${ids.clienteA}/historico`)
+        .set(headers(ids.userB)).expect(200);
+    assert.deepEqual(outro.body.data.map((e: { id: string }) => e.id), [ids.sessaoB]);
+
+    const historico = await request(appTeste)
+        .get(`/vinculos-clinicos/paciente/${ids.clienteA}`)
+        .set(headers(ids.admin)).expect(200);
+    assert.equal(historico.body.data.length, 2);
+    assert.ok(historico.body.data.some((item: { id: string; revogado_em: string }) =>
+        item.id === vinculoA && item.revogado_em,
+    ));
+    assert.ok(historico.body.data.some((item: { id: string; revogado_em: string | null }) =>
+        item.id === vinculoB && item.revogado_em === null,
+    ));
+
+    await request(appTeste)
+        .post(`/vinculos-clinicos/${vinculoA}/revogar`)
+        .set(headers(ids.admin))
+        .send({ motivo: 'Repeticao indevida ficticia' }).expect(409);
 });
 
 test('revogacao bloqueia leitura imediatamente', async () => {
