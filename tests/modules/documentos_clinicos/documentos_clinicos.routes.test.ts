@@ -97,6 +97,8 @@ test('rotas de vinculo paciente-profissional permanecem ausentes e protegidas', 
 });
 
 test('lista de pacientes vinculados nunca e publicada por engano', async () => {
+    const identidade = await request(app).get('/api/v1/prontuario/identidade').expect(404);
+    assert.equal(identidade.body.codigo, 'ROTA_NAO_ENCONTRADA');
     const resposta = await request(app).get('/api/v1/prontuario/pacientes').expect(404);
     assert.equal(resposta.body.codigo, 'ROTA_NAO_ENCONTRADA');
 
