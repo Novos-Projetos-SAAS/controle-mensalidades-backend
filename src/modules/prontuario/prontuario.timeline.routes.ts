@@ -24,6 +24,7 @@ prontuarioTimelineRoutes.use(
     verifyUser, verifyOrganization, contextoArea, exigirHomologacaoProntuario,
 );
 
+prontuarioTimelineRoutes.get('/identidade', pacientesVinculadosController.identidade);
 prontuarioTimelineRoutes.get('/pacientes', pacientesVinculadosController.listar);
 prontuarioTimelineRoutes.get('/pacientes/:pacienteId/historico', prontuarioTimelineController.listar);
 
