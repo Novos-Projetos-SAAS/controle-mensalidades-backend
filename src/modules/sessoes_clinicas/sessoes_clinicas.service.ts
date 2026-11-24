@@ -3,6 +3,7 @@ import AppError from '../../shared/errors/AppError.js';
 import sessoesClinicasRepository from './sessoes_clinicas.repository.js';
 
 import autorizacaoClinicaService from './autorizacao_clinica.service.js';
+import { exigirVinculoPacienteProfissional } from '../vinculos_clinicos/vinculos_clinicos.autorizacao.js';
 
 import auditoriaClinicaTransacional from './sessoes_clinicas.auditoria_transacional.js';
 
@@ -109,6 +110,18 @@ class SessoesClinicasService {
                         'CLIENTE_NAO_DISPONIVEL',
                     );
                 }
+
+                // Criação somente de paciente designado ao próprio profissional.
+                // A rota pública continua bloqueada até homologação.
+                if (!usuarioId) {
+                    throw new AppError('Autenticação clínica necessária.', 401, 'AUTENTICACAO_NECESSARIA');
+                }
+                await exigirVinculoPacienteProfissional(transaction, {
+                    organizacaoId: contexto.organizacaoId,
+                    areaNegocioId: contexto.areaNegocioId,
+                    profissionalId: dados.profissional_id,
+                    clienteId: dados.cliente_id,
+                });
 
                 const profissional = await sessoesClinicasRepository.buscarProfissionalElegivel(
                     contexto.organizacaoId,
@@ -302,6 +315,12 @@ class SessoesClinicasService {
             if (!sessaoExistente) {
                 throw erroSessaoNaoEncontrada();
             }
+            await exigirVinculoPacienteProfissional(transaction, {
+                organizacaoId: contexto.organizacaoId,
+                areaNegocioId: contexto.areaNegocioId,
+                profissionalId: sessaoExistente.profissional_id,
+                clienteId: sessaoExistente.cliente_id,
+            });
 
             // 2. Monta somente os campos informados.
             const atualizacao: DadosCorrecaoSessaoClinica = {
