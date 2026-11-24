@@ -4,6 +4,7 @@ on:
     branches:
       - main
       - review/fisioterapia-evolucao-estruturada-20261122
+      - feat/prontuario-anamnese-laudo-versionados-20261122
   workflow_dispatch:
 permissions:
   contents: read
