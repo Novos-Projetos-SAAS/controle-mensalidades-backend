@@ -6,6 +6,7 @@ import verifyOrganization from '../../middlewares/verifyOrganization.middleware.
 import contextoArea from '../contexto/contextoArea.middleware.js';
 import AppError from '../../shared/errors/AppError.js';
 import prontuarioTimelineController from './prontuario.timeline.controller.js';
+import pacientesVinculadosController from './prontuario.pacientes.controller.js';
 
 const prontuarioTimelineRoutes = Router();
 
@@ -23,6 +24,7 @@ prontuarioTimelineRoutes.use(
     verifyUser, verifyOrganization, contextoArea, exigirHomologacaoProntuario,
 );
 
+prontuarioTimelineRoutes.get('/pacientes', pacientesVinculadosController.listar);
 prontuarioTimelineRoutes.get('/pacientes/:pacienteId/historico', prontuarioTimelineController.listar);
 
 export default prontuarioTimelineRoutes;
