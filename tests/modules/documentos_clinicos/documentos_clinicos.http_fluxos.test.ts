@@ -17,6 +17,7 @@ import contextoArea from '../../../src/modules/contexto/contextoArea.middleware.
 import controller from '../../../src/modules/documentos_clinicos/documentos_clinicos.controller.js';
 import timelineController from '../../../src/modules/prontuario/prontuario.timeline.controller.js';
 import vinculosController from '../../../src/modules/vinculos_clinicos/vinculos_clinicos.controller.js';
+import sessoesController from '../../../src/modules/sessoes_clinicas/sessoes_clinicas.controller.js';
 
 // Este teste é exclusivo de uma instancia LOCAL DESCARTAVEL.
 // NUNCA executar contra Neon, bancos compartilhados ou producao.
@@ -64,6 +65,8 @@ appTeste.get('/documentos-clinicos/:documentoId', controller.consultar);
 appTeste.post('/documentos-clinicos/:documentoId/revisoes', controller.revisar);
 appTeste.post('/documentos-clinicos/:documentoId/finalizar', controller.finalizar);
 appTeste.get('/prontuario/pacientes/:pacienteId/historico', timelineController.listar);
+appTeste.get('/sessoes-clinicas/:sessaoClinicaId', sessoesController.buscarPorId);
+appTeste.post('/sessoes-clinicas', sessoesController.criar);
 appTeste.post('/vinculos-clinicos', vinculosController.conceder);
 appTeste.get('/vinculos-clinicos/paciente/:clienteId', vinculosController.listar);
 appTeste.post('/vinculos-clinicos/:vinculoId/revogar', vinculosController.revogar);
@@ -183,6 +186,22 @@ test('profissional habilitado mas SEM vinculo nao acessa paciente', async () => 
     await request(appTeste)
         .get(`/prontuario/pacientes/${ids.clienteA}/historico`)
         .set(headers(ids.userA))
+        .expect(404);
+
+    await request(appTeste)
+        .get(`/sessoes-clinicas/${ids.sessaoA}`)
+        .set(headers(ids.userA))
+        .expect(404);
+
+    await request(appTeste)
+        .post('/sessoes-clinicas')
+        .set(headers(ids.userA))
+        .send({
+            cliente_id: ids.clienteA,
+            profissional_id: ids.profA,
+            data_sessao: '2026-11-20T14:00:00-03:00',
+            evolucao: 'Evolucao ficticia sem vinculo clinico',
+        })
         .expect(404);
 });
 
@@ -437,6 +456,32 @@ test('linha do tempo valida o limite e nao permite enumeracao sem autenticacao',
         .expect(400);
 });
 
+test('sessao e evolucao exigem vinculo ativo e titularidade', async () => {
+    const autorizada = await request(appTeste)
+        .get(`/sessoes-clinicas/${ids.sessaoA}`)
+        .set(headers(ids.userA)).expect(200);
+    assert.equal(autorizada.body.data.procedimentos_realizados, 'Procedimentos ficticios');
+
+    await request(appTeste)
+        .get(`/sessoes-clinicas/${ids.sessaoA}`)
+        .set(headers(ids.userB)).expect(404);
+
+    const criada = await request(appTeste)
+        .post('/sessoes-clinicas')
+        .set(headers(ids.userA))
+        .send({
+            cliente_id: ids.clienteA,
+            profissional_id: ids.profA,
+            data_sessao: '2026-11-20T14:00:00-03:00',
+            evolucao: 'Treino de marcha em sessao exclusivamente ficticia',
+            objetivo_sessao: 'Treino funcional',
+            procedimentos_realizados: 'Mobilidade e propriocepcao',
+            resposta_paciente: 'Boa tolerancia ficticia',
+        })
+        .expect(201);
+    assert.ok(criada.body.data.id);
+});
+
 test('historico documental rejeita DELETE e TRUNCATE fisico', async () => {
     await assert.rejects(
         connection.transaction(async (trx) => {
@@ -473,6 +518,13 @@ test('revogacao administrativa corta leitura e adendos mesmo com perfil clinico 
     await request(appTeste)
         .get(`/prontuario/pacientes/${ids.clienteA}/historico`)
         .set(headers(ids.userA)).expect(404);
+
+    await request(appTeste)
+        .get(`/sessoes-clinicas/${ids.sessaoA}`)
+        .set(headers(ids.userA)).expect(404);
+    await request(appTeste)
+        .get(`/sessoes-clinicas/${ids.sessaoB}`)
+        .set(headers(ids.userB)).expect(200);
 
     await request(appTeste)
         .post(`/documentos-clinicos/${documentoId}/revisoes`)
