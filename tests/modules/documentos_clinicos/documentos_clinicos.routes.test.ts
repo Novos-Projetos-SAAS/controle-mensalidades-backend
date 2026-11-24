@@ -95,3 +95,13 @@ test('rotas de vinculo paciente-profissional permanecem ausentes e protegidas', 
     const semToken = await request(isolado).get(`/vinculos-clinicos/paciente/${id}`).expect(401);
     assert.equal(semToken.body.codigo, 'TOKEN_AUSENTE');
 });
+
+test('lista de pacientes vinculados nunca e publicada por engano', async () => {
+    const resposta = await request(app).get('/api/v1/prontuario/pacientes').expect(404);
+    assert.equal(resposta.body.codigo, 'ROTA_NAO_ENCONTRADA');
+
+    const isolado = express();
+    isolado.use('/prontuario', prontuarioTimelineRoutes);
+    isolado.use(errorHandler);
+    await request(isolado).get('/prontuario/pacientes').expect(401);
+});
