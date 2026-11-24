@@ -9,6 +9,7 @@ import connection from '../../../src/database/connection.js';
 import errorHandler from '../../../src/middlewares/errorHandler.middleware.js';
 import AppError from '../../../src/shared/errors/AppError.js';
 import prontuarioTimelineRoutes, { exigirHomologacaoProntuario } from '../../../src/modules/prontuario/prontuario.timeline.routes.js';
+import vinculosClinicosRoutes, { exigirHomologacaoVinculos } from '../../../src/modules/vinculos_clinicos/vinculos_clinicos.routes.js';
 import documentosClinicosRoutes, {
     exigirHomologacaoDocumental,
 } from '../../../src/modules/documentos_clinicos/documentos_clinicos.routes.js';
@@ -67,5 +68,30 @@ test('linha do tempo continua ausente de /api/v1 e bloqueada em roteador isolado
     const semToken = await request(isolado)
         .get('/prontuario/pacientes/00000000-0000-4000-8000-000000000001/historico')
         .expect(401);
+    assert.equal(semToken.body.codigo, 'TOKEN_AUSENTE');
+});
+
+test('rotas de vinculo paciente-profissional permanecem ausentes e protegidas', async () => {
+    const id = '00000000-0000-4000-8000-000000000001';
+    const urls = [
+        ['/api/v1/vinculos-clinicos', 'post'],
+        [`/api/v1/vinculos-clinicos/paciente/${id}`, 'get'],
+        [`/api/v1/vinculos-clinicos/${id}/revogar`, 'post'],
+    ] as const;
+    for (const [url, metodo] of urls) {
+        const resposta = await (metodo === 'post' ? request(app).post(url) : request(app).get(url))
+            .expect(404);
+        assert.equal(resposta.body.codigo, 'ROTA_NAO_ENCONTRADA');
+    }
+
+    let erro: unknown;
+    exigirHomologacaoVinculos({} as Request, {} as Response, (e: unknown) => { erro = e; });
+    assert.ok(erro instanceof AppError);
+    assert.equal(erro.code, 'ACESSO_CLINICO_NAO_CONFIGURADO');
+
+    const isolado = express();
+    isolado.use('/vinculos-clinicos', vinculosClinicosRoutes);
+    isolado.use(errorHandler);
+    const semToken = await request(isolado).get(`/vinculos-clinicos/paciente/${id}`).expect(401);
     assert.equal(semToken.body.codigo, 'TOKEN_AUSENTE');
 });
