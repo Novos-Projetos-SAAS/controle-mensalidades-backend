@@ -4,6 +4,7 @@ import connection from '../../database/connection.js';
 import { aplicarTimeoutsTransacaoClinica } from '../../database/clinical-transaction-timeouts.js';
 import AppError from '../../shared/errors/AppError.js';
 import autorizacaoClinicaService from '../sessoes_clinicas/autorizacao_clinica.service.js';
+import { exigirVinculoPacienteProfissional } from '../vinculos_clinicos/vinculos_clinicos.autorizacao.js';
 
 export type ContextoLinhaTempo = {
     usuarioId: string;
@@ -98,6 +99,13 @@ class LinhaTempoClinicaService {
             if (!paciente) {
                 throw new AppError('Paciente não encontrado.', 404, 'PACIENTE_CLINICO_NAO_ENCONTRADO');
             }
+
+            await exigirVinculoPacienteProfissional(trx, {
+                organizacaoId: contexto.organizacaoId,
+                areaNegocioId: contexto.areaNegocioId,
+                profissionalId: identidade.profissionalId,
+                clienteId: pacienteId,
+            });
 
             const escopo = {
                 organizacao_id: contexto.organizacaoId,
