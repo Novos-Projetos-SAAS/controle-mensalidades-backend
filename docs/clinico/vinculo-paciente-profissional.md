@@ -66,7 +66,7 @@ PRs são rascunhos e nenhuma migration foi aplicada no Neon.
 2. Provisionar no futuro uma instância/branch isolada de Neon para
    homologação, com dados sintéticos e credenciais runtime/migrations
    segregadas. Conferir backup/restauração.
-3. Aplicar as migrations aprovadas 067/068/069 apenas através da role
+3. Aplicar as migrations clínicas aprovadas 068/069/070 apenas através da role
    controlada e change autorizado; conferir `knex_migrations` e triggers.
 4. Testar concessão/revogação de vínculo, concorrência, auditoria,
    regras de atendimento e isolamento multi-organização no ambiente.
@@ -92,3 +92,5 @@ Continuar **bloqueado** enquanto não houver evidência de TLS
 `verify-full`, role runtime sem DDL/TRUNCATE, auditoria de leitura
 e escrita, permissões por paciente, operação segura de backups,
 recuperação testada, política de privacidade e autorização técnica.
+
+> **Importante (novembro/2026):** a migration da evolução foi renomeada de `20261122170000_067_campos_evolucao_fisioterapia.js` para `20261125130000_070_campos_evolucao_fisioterapia.js`. O conteúdo SQL não foi alterado. A ordem por timestamp passa a ser documentos `068`, vínculos `069`, evolução `070`, sem dependências SQL entre essas três migrações. No banco `mensalidades-desenv` existe uma migration InfinitePay `20261125120000_067_infinitepay_cobrancas.js` registrada no ledger; o código dessa migration precisa estar presente na árvore antes de executar `knex migrate:latest` nesse banco. A renomeação, isoladamente, não resolve a ausência do arquivo da InfinitePay.
