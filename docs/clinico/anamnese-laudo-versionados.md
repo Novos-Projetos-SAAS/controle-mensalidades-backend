@@ -12,7 +12,7 @@ O conteudo JSONB e destinado exclusivamente a dados ficticios na etapa de testes
 
 ## Regras do fluxo futuro
 
-A anamnese deve contemplar queixa principal, historia do problema, antecedentes, medicamentos/alergias informados, limitacoes funcionais, avaliacao inicial e objetivos. Laudo: finalidade, achados, diagnostico fisioterapeutico, conclusao, recomendacoes e identificacao do profissional com registro de conselho. A evolucao por sessao usa os campos da migration 067.
+A anamnese deve contemplar queixa principal, historia do problema, antecedentes, medicamentos/alergias informados, limitacoes funcionais, avaliacao inicial e objetivos. Laudo: finalidade, achados, diagnostico fisioterapeutico, conclusao, recomendacoes e identificacao do profissional com registro de conselho. A evolução por sessão usa as colunas da migration `20261125130000_070_campos_evolucao_fisioterapia.js`.
 
 Toda revisao gera nova linha (numeracao crescente). Primeira revisao e INICIAL; apos versao FINALIZADO so se permitem ADENDOS. Nao e uma assinatura digital, nem prova de autenticidade documental; emissao/assinatura e PDF protegido sao etapas separadas. A linha do tempo do paciente so pode ser composta apos autorizacao e auditoria de leitura.
 
@@ -25,7 +25,7 @@ Toda revisao gera nova linha (numeracao crescente). Primeira revisao e INICIAL; 
 - Definir schema estrito do JSONB e evitar PII/sensivel em logs, eventos, WhatsApp, analytics ou cobrancas.
 - Validar acesso por organizacao, area, profissional, paciente e necessidade clinica, com revogacao imediata.
 - Aplicar a politica de retencao, backup e restauracao e criterios de `docs/clinico/criterios-entrada-homologacao.md`.
-- A migration 068 depende da 067 no PR backend #8, portanto **nao mesclar isoladamente na main** antes da revisao da base.
+- A migration documental `068` não depende das colunas de evolução `070` no SQL, portanto a execução de `068` antes de `070` é válida. O PR #11 continua empilhado sobre o PR #8 e **não deve ser mesclado isoladamente na `main`** antes de revisar a base.
 
 Status: estrutura proposta e commitada; ainda **nao homologada nem testada em banco real**, sem endpoints publicados.
 
