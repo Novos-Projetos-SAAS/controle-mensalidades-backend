@@ -28,7 +28,9 @@
         "test:whatsapp": "node --env-file=.env.test --import tsx --test tests/modules/whatsapp/*.test.ts",
         "cpf:audit:test": "node --env-file=.env.test --import tsx src/diagnostics/auditar-cpf.ts --read-only --target=test",
         "cpf:audit:desenv": "node --env-file=.env --import tsx src/diagnostics/auditar-cpf.ts --read-only --target=development",
-        "test:cpf:audit": "node --import tsx --test tests/utils/cpf.audit.test.ts"
+        "test:cpf:audit": "node --import tsx --test tests/utils/cpf.audit.test.ts",
+        "migrations:preflight": "tsx src/diagnostics/migration-ledger-preflight.ts",
+        "test:migrations:preflight": "node --import tsx --test tests/database/migration_ledger_preflight.test.ts"
     },
     "keywords": [],
     "author": "",
