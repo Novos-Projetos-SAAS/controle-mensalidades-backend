@@ -10,7 +10,8 @@ import { resolve } from 'node:path';
 
 import knex from 'knex';
 
-import configuracoes from '../../knexfile.js';
+import { criarConfiguracaoBanco } from '../database/database.config.js';
+import { selecionarUrlMigrations } from '../database/migration-url.js';
 import { compararLedgerMigrations } from '../database/migration-ledger-preflight.js';
 import type { DatabaseEnvironment } from '../database/database.config.js';
 
@@ -26,8 +27,9 @@ async function executar() {
     if (args.length !== 2 || posicao !== 0) {
         throw new Error('Uso: npm run migrations:preflight -- --env development');
     }
-    const cfg = configuracoes[ambiente as DatabaseEnvironment];
-    if (!cfg) throw new Error('Configuração do banco não encontrada.');
+    const url = selecionarUrlMigrations(ambiente as DatabaseEnvironment, process.env);
+    if (!url) throw new Error('URL de migrations não definida. Configure DATABASE_URL_MIGRATIONS, DATABASE_URL ou DATABASE_URL_TEST conforme o ambiente.');
+    const cfg = criarConfiguracaoBanco(ambiente as DatabaseEnvironment, url);
 
     const pasta = resolve(process.cwd(), './src/database/migrations');
     const arquivos = (await readdir(pasta)).filter((nome) => nome.endsWith('.js')).sort();
