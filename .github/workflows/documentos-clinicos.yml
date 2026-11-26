@@ -49,6 +49,8 @@ jobs:
       - run: npm run migrate:latest -- --env test
       - run: npm run typecheck
       - run: npm run lint
+      - name: Verificar reconciliação de migration ledger (somente unidade)
+        run: npm run test:migrations:preflight
       - name: Validar contratos e protecoes da migration
         run: node --env-file=.env.test --import tsx --test tests/modules/documentos_clinicos/documentos_clinicos.validator.test.ts tests/database/clinical_document_versions_migration.test.ts
       - name: Fluxo HTTP completo com profissionais e pacientes sintéticos
