@@ -7,7 +7,7 @@ import {
 } from '../../src/modules/prontuario/prontuario.homologacao.middleware.js';
 import AppError from '../../src/shared/errors/AppError.js';
 
-test('somente development de homologacao ou test isolado libera API', () => {
+test('somente development explicitamente autorizado ou test isolado libera API', () => {
     const opts = {
         CLINICAL_HOMOLOGATION_ENABLED: 'true',
         CLINICAL_HOMOLOGATION_CONFIRMATION: 'SOMENTE_DADOS_FICTICIOS',
@@ -16,11 +16,16 @@ test('somente development de homologacao ou test isolado libera API', () => {
         ...opts, NODE_ENV: 'development', AMBIENTE_BANCO: 'homologacao',
     }), true);
     assert.equal(homologacaoClinicaAtiva({
+        ...opts, NODE_ENV: 'development', AMBIENTE_BANCO: 'desenv',
+    }), true);
+    assert.equal(homologacaoClinicaAtiva({
         ...opts, NODE_ENV: 'test', AMBIENTE_BANCO: 'teste',
     }), true);
     for (const o of [
         { ...opts, NODE_ENV: 'production', AMBIENTE_BANCO: 'homologacao' },
-        { ...opts, NODE_ENV: 'development', AMBIENTE_BANCO: 'desenv' },
+        { ...opts, NODE_ENV: 'production', AMBIENTE_BANCO: 'desenv' },
+        { ...opts, NODE_ENV: 'development', AMBIENTE_BANCO: 'desenv', CLINICAL_HOMOLOGATION_ENABLED: 'false' },
+        { ...opts, NODE_ENV: 'development', AMBIENTE_BANCO: 'desenv', CLINICAL_HOMOLOGATION_CONFIRMATION: 'NAO' },
         { ...opts, NODE_ENV: 'development', AMBIENTE_BANCO: 'teste' },
         { ...opts, NODE_ENV: 'test', AMBIENTE_BANCO: 'homologacao' },
         { ...opts, NODE_ENV: 'development', AMBIENTE_BANCO: 'homologacao', CLINICAL_HOMOLOGATION_ENABLED: 'false' },
