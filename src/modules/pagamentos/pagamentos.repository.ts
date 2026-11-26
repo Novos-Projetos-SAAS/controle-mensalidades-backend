@@ -125,6 +125,19 @@ export class PagamentosRepository {
         return converter(conta.valor_final) - converter(String(total?.total ?? '0'));
     }
 
+    clienteDaCobranca(charge: Cobranca) {
+        return this.db<{ nome: string; email: string | null; telefone: string | null }>(
+            'clientes as c',
+        )
+            .join('contas_receber as cr', 'cr.cliente_id', 'c.id')
+            .where('cr.id', charge.conta_receber_id)
+            .where('cr.organizacao_id', charge.organizacao_id)
+            .where('c.organizacao_id', charge.organizacao_id)
+            .whereNull('c.deletado_em')
+            .select('c.nome', 'c.email', 'c.telefone')
+            .first();
+    }
+
     configuracao(org: string, trx: Knex | Knex.Transaction = this.db) {
         return trx<ConfiguracaoPagamento>('integracoes_pagamento').where({
             organizacao_id: org,

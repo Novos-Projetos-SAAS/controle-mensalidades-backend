@@ -70,8 +70,10 @@ after(async () => {
     }
 });
 
-test('inventário deve conter as 51 tabelas da aplicação com os três campos de auditoria', () => {
-    assert.equal(tabelasAplicacao.length, 51);
+test('inventário deve conter as 53 tabelas da aplicação com os três campos de auditoria', () => {
+    assert.equal(tabelasAplicacao.length, 53);
+    assert.ok(tabelasAplicacao.includes('webhook_eventos_whatsapp'));
+    assert.ok(tabelasAplicacao.includes('integracoes_whatsapp_onboarding'));
     assert.ok(tabelasAplicacao.includes('profissionais_areas'));
     assert.ok(tabelasAplicacao.includes('historico_correcoes_sessoes_clinicas'));
     assert.ok(tabelasAplicacao.includes('webhook_eventos_whatsapp'));

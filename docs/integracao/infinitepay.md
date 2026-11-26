@@ -43,7 +43,7 @@ A migration `20261125120000_067_infinitepay_cobrancas.js` amplia as tabelas exis
 
 - A cobrança é persistida antes de chamar `/links`; a criação tem claim exclusivo.
 - Existe no máximo uma cobrança ativa ou incerta por conta. Repetir a solicitação devolve a cobrança existente.
-- O payload usa o saldo calculado no backend, em centavos, com descrição genérica da competência. Dados clínicos e identidade do cliente não são enviados.
+- O payload usa o saldo calculado no backend, em centavos, com descrição genérica da competência. O checkout pode ser pré-preenchido com nome, email e telefone do cliente vinculado à conta e à mesma organização. Esses dados são consultados no backend no momento do envio; não são aceitos como autoridade do navegador nem duplicados em `payload_checkout`. Email é normalizado e validado. Telefones brasileiros completos com DDD recebem o código de país e formato E.164; números internacionais precisam de prefixo explícito `+`. Campos ausentes ou inválidos são omitidos. CPF, dados clínicos e outros atributos não são consultados nem enviados para esse fim. A página pública de cobrança continua sem exibir os contatos do cliente.
 - O checkout recebe `single_payment=true` e validade. Para uma dívida futura, a validade termina no fim do vencimento em São Paulo; para geração manual vencida, dura 24 horas. A validade respeita o limite do provedor.
 - Falha de transporte deixa `CRIACAO_INCERTA`; o sistema não repete `/links` automaticamente, pois uma resposta perdida não prova que o link não foi criado.
 - Webhook e retorno são pistas. O pagamento depende de consulta oficial a `/payment_check`, com a conta histórica e os identificadores da cobrança.

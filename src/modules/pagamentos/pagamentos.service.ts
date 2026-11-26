@@ -19,6 +19,7 @@ import {
 } from './pagamentos.repository.js';
 import { validarTokenPagamento } from './pagamentos.validator.js';
 import type { PagamentoProvider } from './types.js';
+import { montarClienteCheckout } from './cliente-checkout.js';
 
 const ativas = [
     'AGUARDANDO_CRIACAO',
@@ -211,9 +212,12 @@ export class PagamentosService {
             const token = this.token(charge);
             const redirect = new URL(String(charge.payload_checkout.redirect_url));
             redirect.searchParams.set('token', token);
+            const customer = montarClienteCheckout(await this.repo.clienteDaCobranca(charge));
+            const { customer: _storedCustomer, ...checkoutPayload } = charge.payload_checkout;
             const { url } = await this.provider.createLink(credential, {
-                ...charge.payload_checkout,
+                ...checkoutPayload,
                 redirect_url: redirect.href,
+                ...(customer ? { customer } : {}),
             });
             if (!providerUrl(url))
                 throw new AppError(

@@ -31,7 +31,7 @@ async function fixture(t: TestContext, vencimento = '2026-11-27') {
     await connection('clientes').insert({
         id: cliente,
         organizacao_id: org,
-        nome: 'Dado privado que não pode sair no checkout',
+        nome: 'Cliente Checkout Teste',
     });
     await connection('planos_comerciais').insert({
         id: plano,
@@ -139,6 +139,7 @@ async function fixture(t: TestContext, vencimento = '2026-11-27') {
     return {
         org,
         area,
+        cliente,
         conta,
         mensalidade,
         context,
@@ -213,7 +214,8 @@ test('geração concorrente cria um único checkout e usa URLs fixas da platafor
         'https://plataforma.example/api/v1/pagamentos/webhook/infinitepay',
     );
     assert.equal(JSON.stringify(f.payload).includes('clínica'), false);
-    assert.equal(JSON.stringify(f.payload).includes('Dado privado'), false);
+    assert.deepEqual(f.payload.customer, { name: 'Cliente Checkout Teste' });
+    assert.equal(JSON.stringify(f.payload).includes('cpf'), false);
     assert.equal(await connection('pagamentos').where('organizacao_id', f.org).first(), undefined);
 });
 
@@ -542,17 +544,105 @@ test('confirmação tardia de cobrança expirada quita dívida válida; conta ca
 test('reinício com criação em andamento registra incerteza sem reenviar links', async (t) => {
     const f = await fixture(t);
     const charge = await f.service.gerarCobranca(f.context, f.mensalidade);
-    await connection('cobrancas_pagamento')
-        .where('id', charge.id)
-        .update({
-            status: 'CRIANDO',
-            checkout_url: null,
-            criacao_iniciada_em: '2026-11-25T11:58:00Z',
-        });
+    await connection('cobrancas_pagamento').where('id', charge.id).update({
+        status: 'CRIANDO',
+        checkout_url: null,
+        criacao_iniciada_em: '2026-11-25T11:58:00Z',
+    });
     await f.service.executarCiclo();
     assert.equal(f.creates, 1);
     assert.equal(
         (await f.service.consultarCobranca(f.context, f.mensalidade))!.status,
         'CRIACAO_INCERTA',
     );
+});
+
+test('checkout envia contatos do cliente normalizados sem persistir cópia de dados pessoais', async (t) => {
+    const f = await fixture(t);
+    await connection('clientes')
+        .where('id', f.cliente)
+        .update({
+            nome: '  Maria  Teste ',
+            email: ' CLIENTE@EXAMPLE.COM ',
+            telefone: '(11) 99999-9999',
+            observacao: 'Informação clínica privada',
+        });
+    const charge = await f.service.gerarCobranca(f.context, f.mensalidade);
+    assert.deepEqual(f.payload.customer, {
+        name: 'Maria Teste',
+        email: 'cliente@example.com',
+        phone_number: '+5511999999999',
+    });
+    assert.deepEqual(f.payload.items, [
+        { quantity: 1, price: 10000, description: 'Mensalidade 2026-11' },
+    ]);
+    assert.equal(JSON.stringify(f.payload).includes('inchk_'), false);
+    assert.equal(JSON.stringify(f.payload).includes('clínica'), false);
+    assert.equal(JSON.stringify(f.payload).includes('cpf'), false);
+    const stored = await connection('cobrancas_pagamento').where('id', charge.id).first();
+    assert.equal(Object.hasOwn(stored.payload_checkout, 'customer'), false);
+    const publicData = await f.service.consultarPublica(tokenOf(charge));
+    assert.equal(JSON.stringify(publicData).includes('cliente@example.com'), false);
+});
+
+test('checkout aceita contatos opcionais ausentes ou inválidos sem inventar preenchimento', async (t) => {
+    for (const input of [
+        { email: null, telefone: null },
+        { email: 'inválido', telefone: '99999999' },
+    ]) {
+        const f = await fixture(t);
+        await connection('clientes')
+            .where('id', f.cliente)
+            .update({ nome: 'Cliente Teste', ...input });
+        await f.service.gerarCobranca(f.context, f.mensalidade);
+        assert.deepEqual(f.payload.customer, { name: 'Cliente Teste' });
+    }
+});
+
+test('checkout sem dados válidos omite customer e mantém confirmação financeira', async (t) => {
+    const f = await fixture(t);
+    await connection('clientes')
+        .where('id', f.cliente)
+        .update({ nome: '', email: null, telefone: null });
+    const charge = await f.service.gerarCobranca(f.context, f.mensalidade);
+    assert.equal(Object.hasOwn(f.payload, 'customer'), false);
+    const result = await f.service.confirmarPublica(tokenOf(charge), await identifiers(charge));
+    assert.equal(result.status, 'PAGO_VERIFICADO');
+});
+
+test('vínculo inconsistente com cliente de outro tenant nunca compartilha seus dados', async (t) => {
+    const f = await fixture(t),
+        other = await fixture(t);
+    await connection('clientes')
+        .where('id', other.cliente)
+        .update({ nome: 'Outro Tenant', email: 'outro@example.com', telefone: '11988887777' });
+    await connection('contas_receber').where('id', f.conta).update({ cliente_id: other.cliente });
+    await f.service.gerarCobranca(f.context, f.mensalidade);
+    assert.equal(Object.hasOwn(f.payload, 'customer'), false);
+    assert.equal(JSON.stringify(f.payload).includes('Outro Tenant'), false);
+    assert.equal(JSON.stringify(f.payload).includes('outro@example.com'), false);
+});
+
+test('tenant diferente não gera cobrança nem consulta dados de cliente alheio', async (t) => {
+    const f = await fixture(t),
+        other = await fixture(t);
+    await assert.rejects(f.service.gerarCobranca(other.context, f.mensalidade));
+    assert.equal(f.creates, 0);
+    assert.deepEqual(f.payload, {});
+});
+
+test('alterar contato após gerar checkout não recria link nem muda a cobrança idempotente', async (t) => {
+    const f = await fixture(t);
+    await connection('clientes')
+        .where('id', f.cliente)
+        .update({ nome: 'Nome Original', email: 'original@example.com' });
+    const first = await f.service.gerarCobranca(f.context, f.mensalidade);
+    await connection('clientes')
+        .where('id', f.cliente)
+        .update({ nome: 'Nome Atualizado', email: 'atualizado@example.com' });
+    const repeated = await f.service.gerarCobranca(f.context, f.mensalidade);
+    assert.equal(first.id, repeated.id);
+    assert.equal(f.creates, 1);
+    assert.deepEqual(f.payload.customer, { name: 'Nome Original', email: 'original@example.com' });
+    assert.equal(repeated.valor, '100.00');
 });
