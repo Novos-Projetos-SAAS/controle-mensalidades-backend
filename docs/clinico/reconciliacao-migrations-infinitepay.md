@@ -1,93 +1,81 @@
-# Reconciliação de migrations — Clínica × InfinitePay
+# Reconciliação de migrations — InfinitePay e prontuário
 
-## Estado identificado em 25/11/2026
+## Auditoria em 25/11/2026
 
-Consultas **somente leitura** aos projetos Neon:
+Foram verificadas as 6 branches do backend e as 8 do frontend.
+O frontend não contém migrations Knex/SQL.
 
-| Projeto | Última migration registrada |
+Verificações **somente leitura** no Neon:
+
+| Projeto | Última migration no `knex_migrations` |
 |---|---|
-| mensalidades-test | `20261121130000_066_preparar_criptografia_cpf.js` |
-| mensalidades-desenv | `20261125120000_067_infinitepay_cobrancas.js` |
+| `mensalidades-test` | `20261121130000_066_preparar_criptografia_cpf.js` |
+| `mensalidades-desenv` | `20261125120000_067_infinitepay_cobrancas.js` |
 
-Na branch clínica, existem os arquivos:
+A migration `067` original **foi localizada** na branch
+`codex/infinitepay-integration` e copiada com conteúdo integral e
+idêntico para as quatro branches clínicas; o arquivo da InfinitePay
+não foi alterado.
 
-- `20261125121000_068_documentos_clinicos_versionados.js`
-- `20261125122000_069_vinculos_clinicos_pacientes.js`
-- `20261125130000_070_campos_evolucao_fisioterapia.js`
+As migrations clínicas `068` e `069` ainda não constam nos ledgers dos
+dois projetos; seus timestamps foram reorganizados **antes de qualquer
+aplicação em Neon**, para ordenar as quatro migrations:
 
-A `070` substituiu a antiga `20261122170000_067_campos_evolucao_fisioterapia.js`
-nas quatro branches clínicas empilhadas, sem modificar seu conteúdo.
+```
+20261125120000_067_infinitepay_cobrancas.js
+20261125121000_068_documentos_clinicos_versionados.js
+20261125122000_069_vinculos_clinicos_pacientes.js
+20261125130000_070_campos_evolucao_fisioterapia.js
+```
 
-**Bloqueio restante:** `20261125120000_067_infinitepay_cobrancas.js` está
-registrada no ledger do `mensalidades-desenv`, porém o **arquivo original
-ainda não foi publicado nas branches GitHub consultadas**, incluindo
-`codex/infinitepay-integration` e `main`. Não recriar o arquivo nem
-renomear a migration aplicada; não editar a tabela `knex_migrations`
-para ocultar esta divergência.
+A antiga `20261122170000_067_campos_evolucao_fisioterapia.js` foi
+substituída por `070`. Os SQLs de `068`, `069` e `070`
+não foram alterados; apenas nomes e caminhos foram reorganizados.
+O Knex ordena por **nome completo do arquivo (timestamp inicial)**.
 
-A ordem lexicográfica esperada dos arquivos no checkout consolidado é:
-`066 → 068 → 069 → 067 (InfinitePay, timestamp 20261125120000) → 070`.
-**A ordenação do Knex segue o prefixo timestamp do nome, não o número
-lógico entre underscores.** A ordem numérica visual não é a ordem de execução.
-As mudanças `068` e `069` devem ser revisadas quanto às suas dependências
-antes de usar essa árvore contra qualquer banco compartilhado.
+**Atenção:** `main` do backend ainda **não contém** a migration
+`067`, pois a integração de pagamentos continua em branch de outro
+desenvolvedor. Os PRs de prontuário são drafts. Nenhum banco Neon
+foi alterado por este trabalho. O checkout reconciliado não autoriza
+habilitar a API clínica sem homologação.
 
-## Próximo passo para o desenvolvedor InfinitePay
-
-1. Publicar a migration **exatamente com o conteúdo original executado no
-   mensalidades-desenv** e o nome
-   `20261125120000_067_infinitepay_cobrancas.js`.
-2. Conferir se a mudança de banco da InfinitePay é reversível somente sob
-   condições aprovadas, e se a migração original não depende de alterações
-   adicionais ainda não publicadas.
-3. Incorporar esse arquivo de forma controlada à branch consolidada para
-   testes. **Não copiar a API ou serviços InfinitePay em desenvolvimento
-   sem coordenação com o responsável.**
-4. Executar o preflight abaixo com a configuração correta e avaliar a
-   lista de migrations pendentes antes de dar qualquer comando de migração.
-
-## Comando de diagnóstico somente leitura
-
-Na pasta backend atualizada:
+## Checkout para verificação
 
 ```powershell
+git fetch origin
 git switch feat/prontuario-pacientes-vinculados-20261123
 git pull --ff-only origin feat/prontuario-pacientes-vinculados-20261123
 npm ci
+npm run test:migrations:preflight
+```
 
-# Verifique manualmente que .env aponta para o banco pretendido.
+Para comparar ledger/arquivos em banco explicitamente configurado,
+sem gravar:
+
+```powershell
 $env:NODE_ENV = "development"
 npm run migrations:preflight -- --env development
 ```
 
-O comando consulta o banco configurado para migrations (prioridade
-`DATABASE_URL_MIGRATIONS`, depois `DATABASE_URL`) e a tabela
-`knex_migrations`, compara com os arquivos locais e lista:
-- migrations registradas no banco que **não** existem no checkout;
-- migrations no checkout ainda não registradas no banco;
-- nomes de migrations com mesmo número lógico.
+O CLI mostra migrations já aplicadas mas ausentes, números duplicados e
+arquivos pendentes. Não executa DDL, `migrate:latest` nem
+`rollback`. Em desenvolvimento, utiliza `DATABASE_URL_MIGRATIONS`
+ou `DATABASE_URL` do `.env`; confira o destino antes de rodar.
 
-Ele **não executa qualquer escrita, migração ou rollback**. Código de
-saída `2` indica divergência bloqueante no ledger/checkout.
-Para `NODE_ENV=test`, ele usa somente `DATABASE_URL_TEST` e requer
-`AMBIENTE_BANCO=teste`.
+## Critérios de liberação no Neon
 
-### O que não fazer
+1. Confirmar com o responsável da InfinitePay que a `067` publicada é
+   idêntica àquela aplicada no `mensalidades-desenv`. Uma cópia de
+   arquivo no Git não comprova isoladamente o SQL executado.
+2. Confirmar CI completa em PostgreSQL descartável com a ordem
+   `067 → 068 → 069 → 070`, sem divergências no ledger.
+3. Preparar branch Neon isolada sem dados reais, backup/restauração,
+   auditoria e privilégios segregados de runtime e migration.
+4. Aplicar migrations via Knex somente após change aprovado e escolha
+   explícita do banco/branch. Não rodar automaticamente em
+   `mensalidades-desenv` ou `mensalidades-test`.
+5. Integrar PRs encadeadas de modo controlado e revisar o efeito
+   de colocar a `067` em `main` no deploy dos dois projetos.
 
-- **Não** executar `migrate:latest` da branch clínica no
-  `mensalidades-desenv` antes da recuperação do arquivo InfinitePay.
-- **Não** forçar `migrate:rollback`, editar `knex_migrations` ou adicionar
-  arquivo `067` falso/vazio para satisfazer o Knex.
-- **Não** aplicar migrations clínicas no Neon compartilhado sem aprovação
-  do plano clínico, avaliação de papéis (runtime/migration), backups e
-  homologação numa branch Neon isolada, com dados sintéticos.
-- **Não** mexer na migration aplicada da InfinitePay, que pertence a outro
-  desenvolvedor.
-
-## Próxima verificação de integridade
-
-Após receber o arquivo original do responsável, comparar
-`git diff`, nomes das migrations e estrutura real do banco; rodar
-`npm run migrations:preflight` (saída sem registros faltantes).
-Somente depois preparar a execução do Knex por um job Node isolado e
-homologado, jamais por SQL parcial copiado da migration.
+**Não editar `knex_migrations`, criar placeholders, alterar o SQL da
+InfinitePay ou executar rollback de cobranças ou documentos clínicos.**
