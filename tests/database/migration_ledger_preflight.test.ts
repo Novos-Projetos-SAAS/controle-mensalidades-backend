@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readdir } from 'node:fs/promises';
+import { resolve } from 'node:path';
 
 import { compararLedgerMigrations } from '../../src/database/migration-ledger-preflight.js';
 
@@ -47,4 +49,14 @@ test('não repete nomes ou considera arquivo js.js invalido', () => {
     assert.deepEqual(atual.registradasSemArquivo, []);
     assert.deepEqual(atual.arquivosPendentes, []);
     assert.deepEqual(atual.numerosReutilizados, []);
+});
+
+test('checkout clínico usa exclusivamente as migrations 068/069/070 sem duplicação', async () => {
+    const arquivos = (await readdir(resolve('src/database/migrations')))
+        .filter((nome) => nome.endsWith('.js'));
+    assert.ok(arquivos.includes(documentos));
+    assert.ok(arquivos.includes(vinculos));
+    assert.ok(arquivos.includes(evolucao));
+    assert.ok(!arquivos.includes('20261122170000_067_campos_evolucao_fisioterapia.js'));
+    assert.deepEqual(compararLedgerMigrations([], arquivos).numerosReutilizados, []);
 });
