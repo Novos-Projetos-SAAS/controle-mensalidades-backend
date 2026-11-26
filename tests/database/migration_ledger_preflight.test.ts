@@ -6,8 +6,8 @@ import { resolve } from 'node:path';
 import { compararLedgerMigrations } from '../../src/database/migration-ledger-preflight.js';
 
 const infinitepay = '20261125120000_067_infinitepay_cobrancas.js';
-const documentos = '20261122180000_068_documentos_clinicos_versionados.js';
-const vinculos = '20261123190000_069_vinculos_clinicos_pacientes.js';
+const documentos = '20261125121000_068_documentos_clinicos_versionados.js';
+const vinculos = '20261125122000_069_vinculos_clinicos_pacientes.js';
 const evolucao = '20261125130000_070_campos_evolucao_fisioterapia.js';
 
 test('detecta no ledger migration executada mas ausente no checkout clinico', () => {
