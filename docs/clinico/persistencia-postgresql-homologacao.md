@@ -1,3 +1,7 @@
+**ATUALIZAÇÃO (26/11/2026):** O ambiente escolhido para desenvolvimento é o projeto Neon `mensalidades-desenv`, não a branch de homologação citada abaixo. Use `docs/clinico/persistencia-postgresql-desenv.md` e `npm run prontuario:migrate:desenv`. As instruções antigas desta página ficam apenas como referência; não executar o comando de homologação por engano.
+
+---
+
 # Prontuário persistido em PostgreSQL/Neon — homologação
 
 ## O que foi implementado
