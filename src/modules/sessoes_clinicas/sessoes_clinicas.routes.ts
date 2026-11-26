@@ -1,9 +1,8 @@
 import { Router } from 'express';
-import type { NextFunction, Request, Response } from 'express';
 
 import verifyOrganization from '../../middlewares/verifyOrganization.middleware.js';
 import verifyUser from '../../middlewares/verifyUser.middleware.js';
-import AppError from '../../shared/errors/AppError.js';
+import { exigirAcessoClinicoDeHomologacao } from '../prontuario/prontuario.homologacao.middleware.js';
 import contextoArea from '../contexto/contextoArea.middleware.js';
 
 import sessoesClinicasController from './sessoes_clinicas.controller.js';
@@ -13,15 +12,7 @@ const sessoesClinicasRoutes = Router();
 // Bloqueio temporário até implementarmos autorização clínica específica.
 // Mesmo que alguém monte estas rotas antes da conclusão,
 // nenhuma operação clínica será permitida.
-export function exigirAutorizacaoClinica(_req: Request, _res: Response, next: NextFunction) {
-    next(
-        new AppError(
-            'Acesso clínico ainda não configurado.',
-            403,
-            'ACESSO_CLINICO_NAO_CONFIGURADO',
-        ),
-    );
-}
+export const exigirAutorizacaoClinica = exigirAcessoClinicoDeHomologacao;
 
 // Middlewares comuns a todas as rotas.
 sessoesClinicasRoutes.use(verifyUser, verifyOrganization, contextoArea, exigirAutorizacaoClinica);
