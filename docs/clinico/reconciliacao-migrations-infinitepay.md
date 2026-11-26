@@ -11,8 +11,8 @@ Consultas **somente leitura** aos projetos Neon:
 
 Na branch clínica, existem os arquivos:
 
-- `20261122180000_068_documentos_clinicos_versionados.js`
-- `20261123190000_069_vinculos_clinicos_pacientes.js`
+- `20261125121000_068_documentos_clinicos_versionados.js`
+- `20261125122000_069_vinculos_clinicos_pacientes.js`
 - `20261125130000_070_campos_evolucao_fisioterapia.js`
 
 A `070` substituiu a antiga `20261122170000_067_campos_evolucao_fisioterapia.js`
