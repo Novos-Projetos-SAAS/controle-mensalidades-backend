@@ -4,6 +4,8 @@ import test, { after, before } from 'node:test';
 
 import cookieParser from 'cookie-parser';
 import express from 'express';
+import app from '../../../src/app.js';
+import { homologacaoClinicaAtiva } from '../../../src/modules/prontuario/prontuario.homologacao.middleware.js';
 import jwt from 'jsonwebtoken';
 import request from 'supertest';
 
@@ -589,6 +591,74 @@ test('sessao e evolucao exigem vinculo ativo e titularidade', async () => {
         })
         .expect(201);
     assert.ok(criada.body.data.id);
+});
+
+test('persistencia HTTP real: anamnese, laudo, evolucao e historico sobrevivem a novas requisicoes', async () => {
+    // A mesma suite tambem roda sem a flag, verificando os serviços fechados.
+    if (!homologacaoClinicaAtiva()) return;
+
+    const rota = '/api/v1';
+    const hdr = headers(ids.userA);
+    const escrita = await request(app).post(rota + '/documentos-clinicos')
+        .set(hdr).send({
+            cliente_id: ids.clienteA,
+            tipo: 'ANAMNESE',
+            conteudo: anamnese,
+        }).expect(201);
+    const salvoId = escrita.body.data.id as string;
+
+    // Cada GET abre uma nova transação PostgreSQL sem qualquer estado em JS/browser.
+    const consultas = await Promise.all([
+        request(app).get(rota + '/documentos-clinicos/' + salvoId).set(hdr).expect(200),
+        request(app).get(rota + '/prontuario/pacientes/' + ids.clienteA + '/historico')
+            .set(hdr).expect(200),
+    ]);
+    assert.equal(consultas[0].body.data.versoes[0].conteudo.queixa_principal, anamnese.queixa_principal);
+    assert.ok(consultas[1].body.data.some((v: { id: string }) => v.id === salvoId));
+
+    const revisao = await request(app).post(rota + '/documentos-clinicos/' + salvoId + '/revisoes')
+        .set(hdr).send({
+            conteudo: { ...anamnese, avaliacao_inicial: 'Avaliacao ficticia atualizada no banco' },
+            natureza: 'CORRECAO',
+            justificativa: 'Corrigir registro sintetico em teste',
+            ultima_versao_esperada: 1,
+        }).expect(200);
+    assert.equal(revisao.body.data.versao, 2);
+
+    const laudoSalvo = await request(app).post(rota + '/documentos-clinicos')
+        .set(hdr).send({
+            cliente_id: ids.clienteA, tipo: 'LAUDO', conteudo: laudo,
+        }).expect(201);
+    assert.ok(laudoSalvo.body.data.id);
+
+    const pacienteB = await request(app).get(rota + '/prontuario/pacientes')
+        .set(headers(ids.userB)).expect(200);
+    assert.ok(pacienteB.body.data.items.every((item: { id: string }) => item.id !== ids.clienteB));
+
+    const novoAtendimento = await request(app).post(rota + '/sessoes-clinicas')
+        .set(hdr).send({
+            cliente_id: ids.clienteA, profissional_id: ids.profA,
+            data_sessao: '2026-11-20T09:30:00-03:00',
+            evolucao: 'Evolucao sintetica salva por API v1',
+            objetivo_sessao: 'Reeducacao postural ficticia',
+            procedimentos_realizados: 'Alongamentos ficticios',
+            resposta_paciente: 'Boa tolerancia ficticia',
+        }).expect(201);
+    assert.ok(novoAtendimento.body.data.id);
+
+    const novaConexao = await request(app).get(rota + '/sessoes-clinicas/' + novoAtendimento.body.data.id)
+        .set(hdr).expect(200);
+    assert.equal(novaConexao.body.data.evolucao, 'Evolucao sintetica salva por API v1');
+
+    const auditoria = await connection('registros_auditoria')
+        .where({ acao: 'DOCUMENTO_CLINICO.CRIADO', recurso_id: salvoId })
+        .first('id');
+    assert.ok(auditoria, 'Gravacao real deve gerar auditoria no mesmo banco');
+
+    await request(app).get(rota + '/documentos-clinicos/' + salvoId)
+        .set(headers(ids.userB)).expect(404);
+    await request(app).get(rota + '/documentos-clinicos/' + salvoId)
+        .expect(401);
 });
 
 test('historico documental rejeita DELETE e TRUNCATE fisico', async () => {
