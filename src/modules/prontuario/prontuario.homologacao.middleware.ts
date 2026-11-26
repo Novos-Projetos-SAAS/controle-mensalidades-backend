@@ -18,8 +18,8 @@ type ConfigHomologacao = {
 };
 
 /**
- * O uso de prontuário persistido só é permitido em desenvolvimento/teste
- * isolado. Nunca habilitar em NODE_ENV=production.
+ * O uso de prontuário persistido só é permitido em desenvolvimento
+ * explicitamente habilitado ou teste isolado. Nunca em NODE_ENV=production.
  *
  * Flags NÃO substituem autenticação, permissão clínica ou vínculo paciente.
  * Os próprios serviços conferem autorização novamente dentro da transação.
@@ -27,7 +27,7 @@ type ConfigHomologacao = {
 export function homologacaoClinicaAtiva(config: ConfigHomologacao = process.env): boolean {
     const ambiente = config.NODE_ENV ?? env.NODE_ENV;
     return (
-        (ambiente === 'development' && config.AMBIENTE_BANCO === 'homologacao' ||
+        (ambiente === 'development' && ['homologacao', 'desenv'].includes(config.AMBIENTE_BANCO ?? '') ||
             ambiente === 'test' && config.AMBIENTE_BANCO === 'teste') &&
         config.CLINICAL_HOMOLOGATION_ENABLED === 'true' &&
         config.CLINICAL_HOMOLOGATION_CONFIRMATION === 'SOMENTE_DADOS_FICTICIOS'
