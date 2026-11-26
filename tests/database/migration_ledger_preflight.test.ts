@@ -51,12 +51,18 @@ test('não repete nomes ou considera arquivo js.js invalido', () => {
     assert.deepEqual(atual.numerosReutilizados, []);
 });
 
-test('checkout clínico usa exclusivamente as migrations 068/069/070 sem duplicação', async () => {
+test('checkout clínico tem o arquivo original 067 e a ordem 067→068→069→070', async () => {
     const arquivos = (await readdir(resolve('src/database/migrations')))
         .filter((nome) => nome.endsWith('.js'));
+    assert.ok(arquivos.includes(infinitepay));
     assert.ok(arquivos.includes(documentos));
     assert.ok(arquivos.includes(vinculos));
     assert.ok(arquivos.includes(evolucao));
+    assert.deepEqual([infinitepay, documentos, vinculos, evolucao].slice().sort(),
+        [infinitepay, documentos, vinculos, evolucao]);
     assert.ok(!arquivos.includes('20261122170000_067_campos_evolucao_fisioterapia.js'));
+    assert.ok(!arquivos.includes('20261122180000_068_documentos_clinicos_versionados.js'));
+    assert.ok(!arquivos.includes('20261123190000_069_vinculos_clinicos_pacientes.js'));
+    assert.equal(compararLedgerMigrations([infinitepay], arquivos).registradasSemArquivo.length, 0);
     assert.deepEqual(compararLedgerMigrations([], arquivos).numerosReutilizados, []);
 });
