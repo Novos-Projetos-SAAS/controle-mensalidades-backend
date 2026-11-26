@@ -5,7 +5,7 @@ autorizada para Neon real, pacientes reais ou publicação de rotas.**
 
 ## Escopo técnico
 
-A migration `20261123190000_069_vinculos_clinicos_pacientes.js` cria
+A migration `20261125122000_069_vinculos_clinicos_pacientes.js` cria
 `vinculos_clinicos_pacientes`, separando:
 - organização, área, cliente e profissional responsável;
 - administrador que concede o vínculo e instante da concessão;
@@ -93,4 +93,4 @@ Continuar **bloqueado** enquanto não houver evidência de TLS
 e escrita, permissões por paciente, operação segura de backups,
 recuperação testada, política de privacidade e autorização técnica.
 
-> **Importante (novembro/2026):** a migration da evolução foi renomeada de `20261122170000_067_campos_evolucao_fisioterapia.js` para `20261125130000_070_campos_evolucao_fisioterapia.js`. O conteúdo SQL não foi alterado. A ordem por timestamp passa a ser documentos `068`, vínculos `069`, evolução `070`, sem dependências SQL entre essas três migrações. No banco `mensalidades-desenv` existe uma migration InfinitePay `20261125120000_067_infinitepay_cobrancas.js` registrada no ledger; o código dessa migration precisa estar presente na árvore antes de executar `knex migrate:latest` nesse banco. A renomeação, isoladamente, não resolve a ausência do arquivo da InfinitePay.
+> **Importante (novembro/2026):** a migration da evolução foi renomeada de `20261122170000_067_campos_evolucao_fisioterapia.js` para `20261125130000_070_campos_evolucao_fisioterapia.js`. O conteúdo SQL não foi alterado. A ordem por timestamp passa a ser documentos `068`, vínculos `069`, evolução `070`, sem dependências SQL entre essas três migrações. A migration original InfinitePay `20261125120000_067_infinitepay_cobrancas.js` já foi copiada sem alterações para as branches clínicas. A sequência completa por timestamp é 067 → 068 → 069 → 070. Execução em Neon requer homologação prévia.
