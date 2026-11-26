@@ -5,7 +5,7 @@ autorizada para Neon real, pacientes reais ou publicação de rotas.**
 
 ## Escopo técnico
 
-A migration `20261123190000_069_vinculos_clinicos_pacientes.js` cria
+A migration `20261125122000_069_vinculos_clinicos_pacientes.js` cria
 `vinculos_clinicos_pacientes`, separando:
 - organização, área, cliente e profissional responsável;
 - administrador que concede o vínculo e instante da concessão;
