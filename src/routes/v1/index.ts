@@ -16,6 +16,11 @@ import permissoesClinicasRoutes from '../../modules/profissionais/permissoes_cli
 import vinculoUsuarioRoutes from '../../modules/profissionais/vinculo_usuario.routes.js';
 import financeiroRoutes from '../../modules/financeiro/financeiro.routes.js';
 import whatsappRoutes from '../../modules/whatsapp/whatsapp.routes.js';
+import sessoesClinicasRoutes from '../../modules/sessoes_clinicas/sessoes_clinicas.routes.js';
+import documentosClinicosRoutes from '../../modules/documentos_clinicos/documentos_clinicos.routes.js';
+import prontuarioTimelineRoutes from '../../modules/prontuario/prontuario.timeline.routes.js';
+import vinculosClinicosRoutes from '../../modules/vinculos_clinicos/vinculos_clinicos.routes.js';
+import { homologacaoClinicaAtiva } from '../../modules/prontuario/prontuario.homologacao.middleware.js';
 
 const v1Routes = Router();
 
@@ -41,5 +46,15 @@ v1Routes.use('/profissionais', vinculoUsuarioRoutes);
 v1Routes.use('/agendamentos', agendamentosRoutes);
 v1Routes.use('/financeiro', financeiroRoutes);
 v1Routes.use('/whatsapp', whatsappRoutes);
+
+// Persistência PostgreSQL para testes integrados com dados SINTÉTICOS.
+// O roteador sequer é montado em produção ou sem a configuração explícita.
+// Cada endpoint continua exigindo login, organização/área e autorização clínica.
+if (homologacaoClinicaAtiva()) {
+    v1Routes.use('/prontuario', prontuarioTimelineRoutes);
+    v1Routes.use('/documentos-clinicos', documentosClinicosRoutes);
+    v1Routes.use('/sessoes-clinicas', sessoesClinicasRoutes);
+    v1Routes.use('/vinculos-clinicos', vinculosClinicosRoutes);
+}
 
 export default v1Routes;
