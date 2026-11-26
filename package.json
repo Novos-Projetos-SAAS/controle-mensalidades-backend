@@ -30,7 +30,8 @@
         "cpf:audit:desenv": "node --env-file=.env --import tsx src/diagnostics/auditar-cpf.ts --read-only --target=development",
         "test:cpf:audit": "node --import tsx --test tests/utils/cpf.audit.test.ts",
         "migrations:preflight": "tsx src/diagnostics/migration-ledger-preflight.ts",
-        "test:migrations:preflight": "node --import tsx --test tests/database/migration_ledger_preflight.test.ts"
+        "test:migrations:preflight": "node --import tsx --test tests/database/migration_ledger_preflight.test.ts",
+        "prontuario:migrate:homologacao": "tsx src/diagnostics/migrar-prontuario-homologacao.ts"
     },
     "keywords": [],
     "author": "",
