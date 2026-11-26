@@ -18,10 +18,10 @@ import {
     type ReceberMensalidadeInput,
 } from './financeiro.validator.js';
 
-type ContextoFinanceiro = {
+export type ContextoFinanceiro = {
     organizacaoId: string;
     areaNegocioId: string;
-    usuarioId: string;
+    usuarioId: string | null;
     requestId?: string;
     ip?: string;
     userAgent?: string;
@@ -106,6 +106,212 @@ function mesmoConteudoIdempotente(
         String(row.forma_pagamento) === dados.forma_pagamento &&
         new Date(row.pago_em as Date | string).getTime() === Date.parse(dados.pago_em)
     );
+}
+
+export async function registrarRecebimentoTransacional(
+    transaction: Knex.Transaction,
+    contexto: ContextoFinanceiro,
+    mensalidadeId: string,
+    chaveIdempotencia: string,
+    dados: ReceberMensalidadeInput,
+    externo?: { cobrancaId: string; transactionNsu: string },
+) {
+    const valorPagamento = converterValorCentavos(dados.valor);
+    if (valorPagamento <= 0n) {
+        throw falha(400, 'VALOR_RECEBIMENTO_INVALIDO', 'O valor recebido deve ser maior que zero.');
+    }
+
+    const mensalidade = await transaction('mensalidades as m')
+        .innerJoin('contas_receber as cr', 'cr.id', 'm.conta_receber_id')
+        .select(
+            'm.id',
+            'm.conta_receber_id',
+            'm.valor_final',
+            'cr.status as status_conta',
+            'cr.cancelado_em',
+        )
+        .where('m.id', mensalidadeId)
+        .andWhere('m.organizacao_id', contexto.organizacaoId)
+        .andWhere('m.area_negocio_id', contexto.areaNegocioId)
+        .forUpdate('cr')
+        .first();
+
+    if (!mensalidade) {
+        throw falha(404, 'MENSALIDADE_NAO_ENCONTRADA', 'Mensalidade não encontrada nesta área.');
+    }
+
+    const existente = await transaction('pagamentos')
+        .select(
+            'id',
+            'conta_receber_id',
+            'valor',
+            'forma_pagamento',
+            'origem',
+            'identificador_externo',
+            'cobranca_pagamento_id',
+            'pago_em',
+            'criado_em',
+        )
+        .where('organizacao_id', contexto.organizacaoId)
+        .andWhere('chave_idempotencia', chaveIdempotencia)
+        .first();
+
+    if (existente) {
+        if (
+            !mesmoConteudoIdempotente(existente, mensalidade.conta_receber_id, dados) ||
+            (externo &&
+                (existente.origem !== 'INFINITEPAY' ||
+                    existente.identificador_externo !== externo.transactionNsu ||
+                    existente.cobranca_pagamento_id !== externo.cobrancaId))
+        ) {
+            throw falha(
+                409,
+                'CHAVE_IDEMPOTENCIA_REUTILIZADA',
+                'A chave de idempotência já foi usada em outro recebimento ou com dados diferentes.',
+            );
+        }
+
+        return { pagamento: pagamentoPublico(existente), repetido: true };
+    }
+
+    if (mensalidade.cancelado_em || mensalidade.status_conta === 'CANCELADO') {
+        throw falha(
+            409,
+            'MENSALIDADE_CANCELADA',
+            'Não é possível receber uma mensalidade cancelada.',
+        );
+    }
+
+    if (mensalidade.status_conta === 'PAGO') {
+        throw falha(409, 'MENSALIDADE_JA_PAGA', 'A mensalidade já está paga.');
+    }
+
+    if (mensalidade.status_conta !== 'PENDENTE') {
+        throw falha(
+            409,
+            'STATUS_MENSALIDADE_NAO_SUPORTADO',
+            'A situação atual da mensalidade não permite recebimentos manuais.',
+        );
+    }
+
+    const totalPagoResult = await transaction('pagamentos')
+        .where('organizacao_id', contexto.organizacaoId)
+        .andWhere('conta_receber_id', mensalidade.conta_receber_id)
+        .sum({ total: 'valor' })
+        .first();
+    const totalPago = converterValorCentavos(String(totalPagoResult?.total ?? '0'));
+    const saldo = converterValorCentavos(String(mensalidade.valor_final)) - totalPago;
+
+    if (valorPagamento > saldo) {
+        throw falha(409, 'VALOR_ACIMA_DO_SALDO', 'O recebimento excede o saldo da mensalidade.');
+    }
+
+    const [inserido] = await transaction('pagamentos')
+        .insert({
+            organizacao_id: contexto.organizacaoId,
+            conta_receber_id: mensalidade.conta_receber_id,
+            cobranca_pagamento_id: externo?.cobrancaId ?? null,
+            valor: formatarCentavos(valorPagamento),
+            forma_pagamento: dados.forma_pagamento,
+            origem: externo ? 'INFINITEPAY' : 'MANUAL',
+            identificador_externo: externo?.transactionNsu ?? null,
+            chave_idempotencia: chaveIdempotencia,
+            pago_em: dados.pago_em,
+            registrado_por_usuario_id: contexto.usuarioId,
+            observacao: null,
+        })
+        .onConflict(['organizacao_id', 'chave_idempotencia'])
+        .ignore()
+        .returning([
+            'id',
+            'conta_receber_id',
+            'valor',
+            'forma_pagamento',
+            'origem',
+            'identificador_externo',
+            'cobranca_pagamento_id',
+            'pago_em',
+            'criado_em',
+        ]);
+
+    if (!inserido) {
+        const concorrente = await transaction('pagamentos')
+            .select(
+                'id',
+                'conta_receber_id',
+                'valor',
+                'forma_pagamento',
+                'origem',
+                'identificador_externo',
+                'cobranca_pagamento_id',
+                'pago_em',
+                'criado_em',
+            )
+            .where('organizacao_id', contexto.organizacaoId)
+            .andWhere('chave_idempotencia', chaveIdempotencia)
+            .first();
+
+        if (
+            !concorrente ||
+            !mesmoConteudoIdempotente(concorrente, mensalidade.conta_receber_id, dados)
+        ) {
+            throw falha(
+                409,
+                'CHAVE_IDEMPOTENCIA_REUTILIZADA',
+                'A chave de idempotência já foi usada em outro recebimento ou com dados diferentes.',
+            );
+        }
+
+        return { pagamento: pagamentoPublico(concorrente), repetido: true };
+    }
+
+    const novoTotalPago = totalPago + valorPagamento;
+    const valorFinal = converterValorCentavos(String(mensalidade.valor_final));
+    const quitada = novoTotalPago >= valorFinal;
+
+    await transaction('contas_receber')
+        .where('id', mensalidade.conta_receber_id)
+        .andWhere('organizacao_id', contexto.organizacaoId)
+        .andWhere('area_negocio_id', contexto.areaNegocioId)
+        .update({
+            status: quitada ? 'PAGO' : 'PENDENTE',
+            recebido_em: quitada ? dados.pago_em : null,
+        });
+
+    await transaction('historico_mensalidades').insert({
+        mensalidade_id: mensalidade.id,
+        usuario_id: contexto.usuarioId,
+        tipo_evento: 'RECEBIMENTO_REGISTRADO',
+        dados_anteriores: {
+            valor_pago: formatarCentavos(totalPago),
+            saldo: formatarCentavos(saldo),
+        },
+        dados_novos: {
+            pagamento_id: inserido.id,
+            valor_recebido: formatarCentavos(valorPagamento),
+            forma_pagamento: dados.forma_pagamento,
+            valor_pago: formatarCentavos(novoTotalPago),
+            saldo: formatarCentavos(valorFinal - novoTotalPago),
+            status: quitada ? 'PAGA' : 'PARCIAL',
+        },
+    });
+
+    await registrarAuditoria(
+        transaction,
+        contexto,
+        'FINANCEIRO.RECEBIMENTO_REGISTRADO',
+        'MENSALIDADE',
+        mensalidade.id,
+        {
+            pagamentoId: inserido.id,
+            valor: formatarCentavos(valorPagamento),
+            formaPagamento: dados.forma_pagamento,
+            saldo: formatarCentavos(valorFinal - novoTotalPago),
+            status: quitada ? 'PAGA' : 'PARCIAL',
+        },
+    );
+
+    return { pagamento: pagamentoPublico(inserido), repetido: false };
 }
 
 class FinanceiroService {
@@ -475,204 +681,15 @@ class FinanceiroService {
         chaveIdempotencia: string,
         dados: ReceberMensalidadeInput,
     ) {
-        const valorPagamento = converterValorCentavos(dados.valor);
-        if (valorPagamento <= 0n) {
-            throw falha(
-                400,
-                'VALOR_RECEBIMENTO_INVALIDO',
-                'O valor recebido deve ser maior que zero.',
-            );
-        }
-
-        const resultado = await connection.transaction(async (transaction) => {
-            const mensalidade = await transaction('mensalidades as m')
-                .innerJoin('contas_receber as cr', 'cr.id', 'm.conta_receber_id')
-                .select(
-                    'm.id',
-                    'm.conta_receber_id',
-                    'm.valor_final',
-                    'cr.status as status_conta',
-                    'cr.cancelado_em',
-                )
-                .where('m.id', mensalidadeId)
-                .andWhere('m.organizacao_id', contexto.organizacaoId)
-                .andWhere('m.area_negocio_id', contexto.areaNegocioId)
-                .forUpdate('cr')
-                .first();
-
-            if (!mensalidade) {
-                throw falha(
-                    404,
-                    'MENSALIDADE_NAO_ENCONTRADA',
-                    'Mensalidade não encontrada nesta área.',
-                );
-            }
-
-            const existente = await transaction('pagamentos')
-                .select(
-                    'id',
-                    'conta_receber_id',
-                    'valor',
-                    'forma_pagamento',
-                    'origem',
-                    'pago_em',
-                    'criado_em',
-                )
-                .where('organizacao_id', contexto.organizacaoId)
-                .andWhere('chave_idempotencia', chaveIdempotencia)
-                .first();
-
-            if (existente) {
-                if (!mesmoConteudoIdempotente(existente, mensalidade.conta_receber_id, dados)) {
-                    throw falha(
-                        409,
-                        'CHAVE_IDEMPOTENCIA_REUTILIZADA',
-                        'A chave de idempotência já foi usada em outro recebimento ou com dados diferentes.',
-                    );
-                }
-
-                return { pagamento: pagamentoPublico(existente), repetido: true };
-            }
-
-            if (mensalidade.cancelado_em || mensalidade.status_conta === 'CANCELADO') {
-                throw falha(
-                    409,
-                    'MENSALIDADE_CANCELADA',
-                    'Não é possível receber uma mensalidade cancelada.',
-                );
-            }
-
-            if (mensalidade.status_conta === 'PAGO') {
-                throw falha(409, 'MENSALIDADE_JA_PAGA', 'A mensalidade já está paga.');
-            }
-
-            if (mensalidade.status_conta !== 'PENDENTE') {
-                throw falha(
-                    409,
-                    'STATUS_MENSALIDADE_NAO_SUPORTADO',
-                    'A situação atual da mensalidade não permite recebimentos manuais.',
-                );
-            }
-
-            const totalPagoResult = await transaction('pagamentos')
-                .where('organizacao_id', contexto.organizacaoId)
-                .andWhere('conta_receber_id', mensalidade.conta_receber_id)
-                .sum({ total: 'valor' })
-                .first();
-            const totalPago = converterValorCentavos(String(totalPagoResult?.total ?? '0'));
-            const saldo = converterValorCentavos(String(mensalidade.valor_final)) - totalPago;
-
-            if (valorPagamento > saldo) {
-                throw falha(
-                    409,
-                    'VALOR_ACIMA_DO_SALDO',
-                    'O recebimento excede o saldo da mensalidade.',
-                );
-            }
-
-            const [inserido] = await transaction('pagamentos')
-                .insert({
-                    organizacao_id: contexto.organizacaoId,
-                    conta_receber_id: mensalidade.conta_receber_id,
-                    cobranca_pagamento_id: null,
-                    valor: formatarCentavos(valorPagamento),
-                    forma_pagamento: dados.forma_pagamento,
-                    origem: 'MANUAL',
-                    identificador_externo: null,
-                    chave_idempotencia: chaveIdempotencia,
-                    pago_em: dados.pago_em,
-                    registrado_por_usuario_id: contexto.usuarioId,
-                    observacao: null,
-                })
-                .onConflict(['organizacao_id', 'chave_idempotencia'])
-                .ignore()
-                .returning([
-                    'id',
-                    'conta_receber_id',
-                    'valor',
-                    'forma_pagamento',
-                    'origem',
-                    'pago_em',
-                    'criado_em',
-                ]);
-
-            if (!inserido) {
-                const concorrente = await transaction('pagamentos')
-                    .select(
-                        'id',
-                        'conta_receber_id',
-                        'valor',
-                        'forma_pagamento',
-                        'origem',
-                        'pago_em',
-                        'criado_em',
-                    )
-                    .where('organizacao_id', contexto.organizacaoId)
-                    .andWhere('chave_idempotencia', chaveIdempotencia)
-                    .first();
-
-                if (
-                    !concorrente ||
-                    !mesmoConteudoIdempotente(concorrente, mensalidade.conta_receber_id, dados)
-                ) {
-                    throw falha(
-                        409,
-                        'CHAVE_IDEMPOTENCIA_REUTILIZADA',
-                        'A chave de idempotência já foi usada em outro recebimento ou com dados diferentes.',
-                    );
-                }
-
-                return { pagamento: pagamentoPublico(concorrente), repetido: true };
-            }
-
-            const novoTotalPago = totalPago + valorPagamento;
-            const valorFinal = converterValorCentavos(String(mensalidade.valor_final));
-            const quitada = novoTotalPago >= valorFinal;
-
-            await transaction('contas_receber')
-                .where('id', mensalidade.conta_receber_id)
-                .andWhere('organizacao_id', contexto.organizacaoId)
-                .andWhere('area_negocio_id', contexto.areaNegocioId)
-                .update({
-                    status: quitada ? 'PAGO' : 'PENDENTE',
-                    recebido_em: quitada ? dados.pago_em : null,
-                });
-
-            await transaction('historico_mensalidades').insert({
-                mensalidade_id: mensalidade.id,
-                usuario_id: contexto.usuarioId,
-                tipo_evento: 'RECEBIMENTO_REGISTRADO',
-                dados_anteriores: {
-                    valor_pago: formatarCentavos(totalPago),
-                    saldo: formatarCentavos(saldo),
-                },
-                dados_novos: {
-                    pagamento_id: inserido.id,
-                    valor_recebido: formatarCentavos(valorPagamento),
-                    forma_pagamento: dados.forma_pagamento,
-                    valor_pago: formatarCentavos(novoTotalPago),
-                    saldo: formatarCentavos(valorFinal - novoTotalPago),
-                    status: quitada ? 'PAGA' : 'PARCIAL',
-                },
-            });
-
-            await registrarAuditoria(
+        const resultado = await connection.transaction((transaction) =>
+            registrarRecebimentoTransacional(
                 transaction,
                 contexto,
-                'FINANCEIRO.RECEBIMENTO_REGISTRADO',
-                'MENSALIDADE',
-                mensalidade.id,
-                {
-                    pagamentoId: inserido.id,
-                    valor: formatarCentavos(valorPagamento),
-                    formaPagamento: dados.forma_pagamento,
-                    saldo: formatarCentavos(valorFinal - novoTotalPago),
-                    status: quitada ? 'PAGA' : 'PARCIAL',
-                },
-            );
-
-            return { pagamento: pagamentoPublico(inserido), repetido: false };
-        });
+                mensalidadeId,
+                chaveIdempotencia,
+                dados,
+            ),
+        );
 
         const mensalidadeAtualizada = await financeiroRepository.buscarMensalidade(
             contexto.organizacaoId,

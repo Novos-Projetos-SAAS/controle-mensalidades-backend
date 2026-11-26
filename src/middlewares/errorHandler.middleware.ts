@@ -28,7 +28,10 @@ export default async function errorHandler(
     const codigo = erroBanco?.codigo ?? error.code ?? (statusCode >= 500 ? 'ERRO_INTERNO' : null);
 
     const timestamp = new Date().toISOString();
-    const caminho = req.originalUrl.split('?')[0] || req.path;
+    const caminho = (req.originalUrl.split('?')[0] || req.path).replace(
+        /(\/pagamentos\/publico\/)[^/]+/g,
+        '$1[privado]',
+    );
 
     if (statusCode < 500) {
         if (statusCode === 409) {

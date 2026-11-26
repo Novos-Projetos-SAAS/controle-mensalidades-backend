@@ -16,6 +16,7 @@ import permissoesClinicasRoutes from '../../modules/profissionais/permissoes_cli
 import vinculoUsuarioRoutes from '../../modules/profissionais/vinculo_usuario.routes.js';
 import financeiroRoutes from '../../modules/financeiro/financeiro.routes.js';
 import whatsappRoutes from '../../modules/whatsapp/whatsapp.routes.js';
+import { pagamentosPublicRoutes } from '../../modules/pagamentos/pagamentos.routes.js';
 
 const v1Routes = Router();
 
@@ -41,5 +42,6 @@ v1Routes.use('/profissionais', vinculoUsuarioRoutes);
 v1Routes.use('/agendamentos', agendamentosRoutes);
 v1Routes.use('/financeiro', financeiroRoutes);
 v1Routes.use('/whatsapp', whatsappRoutes);
+v1Routes.use('/pagamentos', pagamentosPublicRoutes);
 
 export default v1Routes;
