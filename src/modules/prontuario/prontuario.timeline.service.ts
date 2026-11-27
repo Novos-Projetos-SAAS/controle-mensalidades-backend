@@ -53,10 +53,10 @@ function iso(data: Date | string): string {
     return date.toISOString();
 }
 
-export function ordenarLinhaTempo(entradas: EntradaLinhaTempo[], limite: number) {
+export function ordenarLinhaTempo(entradas: EntradaLinhaTempo[], limite: number, deslocamento = 0) {
     // Ordenação determinística, inclusive quando dois registros compartilham a mesma data.
     return entradas.sort((a, b) => b.data.localeCompare(a.data) || a.id.localeCompare(b.id))
-        .slice(0, limite);
+        .slice(deslocamento, deslocamento + limite);
 }
 
 class LinhaTempoClinicaService {
@@ -65,6 +65,7 @@ class LinhaTempoClinicaService {
         pacienteId: string,
         limite: number,
         requestId?: string,
+        deslocamento = 0,
     ): Promise<EntradaLinhaTempo[]> {
         return connection.transaction(async (trx: Knex.Transaction) => {
             await aplicarTimeoutsTransacaoClinica(trx);
@@ -133,7 +134,7 @@ class LinhaTempoClinicaService {
                 .whereNull('p.deletado_em')
                 .orderBy('sc.data_sessao', 'desc')
                 .orderBy('sc.id', 'asc')
-                .limit(limite) as Sessao[];
+                .limit(limite + deslocamento) as Sessao[];
 
             const documentos = await trx('registros_clinicos_documentais as d')
                 .innerJoin('profissionais as p', 'p.id', 'd.profissional_id')
@@ -151,7 +152,7 @@ class LinhaTempoClinicaService {
                 .whereNull('p.deletado_em')
                 .orderBy('d.criado_em', 'desc')
                 .orderBy('d.id', 'asc')
-                .limit(limite) as Documento[];
+                .limit(limite + deslocamento) as Documento[];
 
             const versoes = documentos.length
                 ? await trx('versoes_registros_clinicos')
@@ -219,7 +220,7 @@ class LinhaTempoClinicaService {
                     'AUDITORIA_CLINICA_INDISPONIVEL',
                 );
             }
-            return ordenarLinhaTempo(entradas, limite);
+            return ordenarLinhaTempo(entradas, limite, deslocamento);
         });
     }
 }
