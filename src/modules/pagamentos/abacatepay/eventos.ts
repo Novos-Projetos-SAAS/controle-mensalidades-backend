@@ -22,6 +22,15 @@ const object = (value: unknown): Record<string, unknown> =>
         : {};
 const pick = (value: unknown, keys: string[]) =>
     Object.fromEntries(Object.entries(object(value)).filter(([k]) => keys.includes(k)));
+function canonical(value: unknown): string {
+    if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+    if (value && typeof value === 'object')
+        return `{${Object.keys(value)
+            .sort()
+            .map((k) => `${JSON.stringify(k)}:${canonical((value as Record<string, unknown>)[k])}`)
+            .join(',')}}`;
+    return JSON.stringify(value) ?? 'null';
+}
 type EventPayload = {
     devMode: boolean;
     data: {
@@ -37,6 +46,7 @@ type Evento = {
     organizacao_id: string;
     provedor: string;
     tipo_evento: string;
+    identificador_externo: string;
     payload: EventPayload;
     tentativas: number;
     lease_token: string;
@@ -145,7 +155,7 @@ export class EventosAbacatePay {
                 payerInformation: pick(v.data.payerInformation, ['method']),
             },
         };
-        await this.d
+        const [inserted] = await this.d
             .db('eventos_webhook')
             .insert({
                 organizacao_id: config.organizacao_id,
@@ -158,7 +168,34 @@ export class EventosAbacatePay {
                 disponivel_em: this.d.now(),
             })
             .onConflict()
-            .ignore();
+            .ignore()
+            .returning('id');
+        if (!inserted) {
+            const original = await this.d
+                .db<Evento>('eventos_webhook')
+                .where({
+                    organizacao_id: config.organizacao_id,
+                    provedor: 'ABACATEPAY',
+                    identificador_externo: v.id,
+                })
+                .whereRaw("payload->>'devMode' = ?", [String(v.devMode)])
+                .first();
+            if (!original)
+                throw falha(
+                    'Não foi possível receber a atualização. Tente novamente.',
+                    'ABACATEPAY_PERSISTENCIA_INDISPONIVEL',
+                    503,
+                );
+            if (
+                original.tipo_evento !== v.event ||
+                canonical(original.payload.data) !== canonical(payload.data)
+            )
+                throw falha(
+                    'Esta atualização precisa de conferência.',
+                    'ABACATEPAY_EVENTO_CONFLITANTE',
+                    409,
+                );
+        }
         return { recebido: true };
     }
     async processar() {
@@ -223,7 +260,10 @@ export class EventosAbacatePay {
         }
     }
     private owned(e: Evento) {
-        return this.d.db('eventos_webhook').where({ id: e.id, lease_token: e.lease_token });
+        return this.d
+            .db('eventos_webhook')
+            .where({ id: e.id, status: 'PROCESSANDO', lease_token: e.lease_token })
+            .where('lease_ate', '>', this.d.now());
     }
     private async aplicar(e: Evento) {
         if (
@@ -276,6 +316,7 @@ export class EventosAbacatePay {
                     ? (payment as unknown as AbacatePayPayment)
                     : undefined,
                 actualSubscription as unknown as AbacatePaySubscription,
+                e,
             );
             return;
         }
@@ -313,6 +354,13 @@ export class EventosAbacatePay {
             methods: [method as 'PIX' | 'CARD'],
             updatedAt: date,
         };
-        await this.charges.aplicar(charge, normalized, official, false, method as 'PIX' | 'CARD');
+        await this.charges.aplicar(
+            charge,
+            normalized,
+            official,
+            false,
+            method as 'PIX' | 'CARD',
+            e,
+        );
     }
 }

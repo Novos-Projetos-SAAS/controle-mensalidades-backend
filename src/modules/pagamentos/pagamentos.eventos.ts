@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import AppError from '../../shared/errors/AppError.js';
+import { exigirPosseEvento } from './evento-lease.js';
 import { registrarRecebimentoTransacional } from '../financeiro/financeiro.service.js';
 import { converterValorCentavos } from '../financeiro/financeiro.validator.js';
 import { decifrarSegredo } from './credenciais.js';
@@ -116,7 +117,8 @@ export class PagamentosEventos {
     private owned(event: EventoPagamento) {
         return this.repo
             .db('eventos_webhook')
-            .where({ id: event.id, status: 'PROCESSANDO', lease_token: event.lease_token });
+            .where({ id: event.id, status: 'PROCESSANDO', lease_token: event.lease_token })
+            .where('lease_ate', '>', this.now());
     }
 
     async processar(id?: string) {
@@ -166,6 +168,7 @@ export class PagamentosEventos {
                     identifiers,
                 );
                 await this.repo.db.transaction(async (trx) => {
+                    await exigirPosseEvento(trx, event, this.now());
                     const conta = await this.repo
                         .contaDaCobranca(trx, charge)
                         .forUpdate('cr')
@@ -257,15 +260,26 @@ export class PagamentosEventos {
                 ].includes(code ?? '');
                 const evidence = evidenciaPublicavel(official);
                 if (permanent && evidence.success === true && evidence.paid === true) {
-                    await this.repo
-                        .db('cobrancas_pagamento')
-                        .where({
-                            provedor: 'INFINITEPAY',
-                            organizacao_id: event.organizacao_id,
-                            identificador_externo: event.payload.order_nsu,
-                        })
-                        .whereNot('status', 'PAGO_VERIFICADO')
-                        .update({ status: 'PAGO_EM_REVISAO', ultimo_erro: code });
+                    await this.repo.db.transaction(async (trx) => {
+                        const owned = await trx('eventos_webhook')
+                            .where({
+                                id: event.id,
+                                status: 'PROCESSANDO',
+                                lease_token: event.lease_token,
+                            })
+                            .where('lease_ate', '>', this.now())
+                            .forUpdate()
+                            .first('id');
+                        if (!owned) return;
+                        await trx('cobrancas_pagamento')
+                            .where({
+                                provedor: 'INFINITEPAY',
+                                organizacao_id: event.organizacao_id,
+                                identificador_externo: event.payload.order_nsu,
+                            })
+                            .whereNot('status', 'PAGO_VERIFICADO')
+                            .update({ status: 'PAGO_EM_REVISAO', ultimo_erro: code });
+                    });
                 }
                 await this.owned(event).update({
                     status: permanent ? 'REVISAO' : event.tentativas >= 8 ? 'FALHOU' : 'PENDENTE',

@@ -92,6 +92,8 @@ export class AbacatePayService {
     }
     async confirmarPublica(token: unknown) {
         const charge = await this.porToken(token);
+        const view = await this.cobrancas.publica(charge);
+        if (view.status === 'QUITADO') return view;
         const account = await this.cobrancas.repo.contaDaCobranca(this.d.db, charge).first();
         if (!account) throw falha('Cobrança não encontrada.');
         await this.conciliar(

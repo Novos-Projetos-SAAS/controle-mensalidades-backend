@@ -19,6 +19,7 @@ import {
 } from './pagamentos.repository.js';
 import { validarTokenPagamento } from './pagamentos.validator.js';
 import type { PagamentoProvider } from './types.js';
+import { situacaoFinanceiraCobranca } from './situacao-cobranca.js';
 import { montarClienteCheckout } from './cliente-checkout.js';
 
 const ativas = [
@@ -87,11 +88,37 @@ export class PagamentosService {
                     409,
                     'COBRANCA_SEM_SALDO',
                 );
-            const monthly = await trx('mensalidades').where({id:mensalidadeId,organizacao_id:contexto.organizacaoId}).select('assinatura_id').first();
-            const recurring = await trx('recorrencias_pagamento').where({assinatura_id:monthly.assinatura_id,organizacao_id:contexto.organizacaoId}).whereNot('status','CANCELADA').first();
-            if (recurring) throw new AppError('Esta mensalidade está vinculada a pagamento automático. Confira a recorrência antes de gerar uma cobrança avulsa.',409,'RECORRENCIA_EM_ANDAMENTO');
-            const other = await trx('cobrancas_pagamento').where({conta_receber_id:conta.conta_receber_id,organizacao_id:contexto.organizacaoId}).whereNot('provedor','INFINITEPAY').whereIn('status',ativas).first();
-            if (other) throw new AppError('Já existe uma cobrança em andamento em outra conta de pagamento.',409,'COBRANCA_EM_ANDAMENTO');
+            const monthly = await trx('mensalidades')
+                .where({ id: mensalidadeId, organizacao_id: contexto.organizacaoId })
+                .select('assinatura_id')
+                .first();
+            const recurring = await trx('recorrencias_pagamento')
+                .where({
+                    assinatura_id: monthly.assinatura_id,
+                    organizacao_id: contexto.organizacaoId,
+                })
+                .whereNot('status', 'CANCELADA')
+                .first();
+            if (recurring)
+                throw new AppError(
+                    'Esta mensalidade está vinculada a pagamento automático. Confira a recorrência antes de gerar uma cobrança avulsa.',
+                    409,
+                    'RECORRENCIA_EM_ANDAMENTO',
+                );
+            const other = await trx('cobrancas_pagamento')
+                .where({
+                    conta_receber_id: conta.conta_receber_id,
+                    organizacao_id: contexto.organizacaoId,
+                })
+                .whereNot('provedor', 'INFINITEPAY')
+                .whereIn('status', ativas)
+                .first();
+            if (other)
+                throw new AppError(
+                    'Já existe uma cobrança em andamento em outra conta de pagamento.',
+                    409,
+                    'COBRANCA_EM_ANDAMENTO',
+                );
             await trx('cobrancas_pagamento')
                 .where({ conta_receber_id: conta.conta_receber_id, provedor: 'INFINITEPAY' })
                 .whereIn(
@@ -219,22 +246,44 @@ export class PagamentosService {
             redirect.searchParams.set('token', token);
             const customer = montarClienteCheckout(await this.repo.clienteDaCobranca(charge));
             const { customer: _storedCustomer, ...checkoutPayload } = charge.payload_checkout;
-            const { url } = await this.provider.createLink(credential, {
-                ...checkoutPayload,
-                redirect_url: redirect.href,
-                ...(customer ? { customer } : {}),
-            });
-            if (!providerUrl(url))
-                throw new AppError(
-                    'Link de pagamento inválido.',
-                    502,
-                    'INFINITEPAY_RESPOSTA_INVALIDA',
-                );
-            await this.repo.cobranca(id).update({
-                checkout_url: url,
-                status: this.deps.db.raw(
-                    "CASE WHEN status = 'CRIANDO' THEN 'AGUARDANDO_PAGAMENTO' ELSE status END",
-                ),
+            await this.deps.db.transaction(async (trx) => {
+                const account = await this.repo
+                    .contaDaCobranca(trx, charge)
+                    .forUpdate('cr')
+                    .first();
+                const current = await this.repo.cobranca(id, trx).forUpdate().first();
+                if (!current || current.status !== 'CRIANDO') return;
+                const saldo = account
+                    ? await this.repo.saldo(trx, account, converterValorCentavos)
+                    : 0n;
+                if (
+                    !account ||
+                    account.cancelado_em ||
+                    account.status_conta !== 'PENDENTE' ||
+                    saldo !== converterValorCentavos(charge.valor)
+                ) {
+                    await this.repo
+                        .cobranca(id, trx)
+                        .update({ status: 'CANCELADO', ultimo_erro: 'SALDO_ATUALIZADO' });
+                    return;
+                }
+                const { url } = await this.provider.createLink(credential, {
+                    ...checkoutPayload,
+                    redirect_url: redirect.href,
+                    ...(customer ? { customer } : {}),
+                });
+                if (!providerUrl(url))
+                    throw new AppError(
+                        'Link de pagamento inválido.',
+                        502,
+                        'INFINITEPAY_RESPOSTA_INVALIDA',
+                    );
+                await this.repo.cobranca(id, trx).update({
+                    checkout_url: url,
+                    status: this.deps.db.raw(
+                        "CASE WHEN status = 'CRIANDO' THEN 'AGUARDANDO_PAGAMENTO' ELSE status END",
+                    ),
+                });
             });
         } catch {
             // A timeout cannot establish whether /links created a checkout. Never resend it blindly.
@@ -271,11 +320,20 @@ export class PagamentosService {
             .orderBy('criado_em', 'desc')
             .first();
         if (!charge) return null;
+        const view = await this.visaoPublica(charge);
         return {
             id: charge.id,
-            ...(await this.visaoPublica(charge)),
-            url_plataforma: `/pagamento/${this.token(charge)}`,
+            ...view,
+            url_plataforma: [
+                'QUITADO',
+                'SALDO_ATUALIZADO',
+                'PAGO_VERIFICADO',
+                'CANCELADO',
+            ].includes(view.status)
+                ? null
+                : `/pagamento/${this.token(charge)}`,
             ultimo_erro: charge.ultimo_erro,
+            requer_conferencia: charge.status === 'PAGO_EM_REVISAO',
         };
     }
 
@@ -293,17 +351,16 @@ export class PagamentosService {
         const conta = await this.repo.contaDaCobranca(this.deps.db, charge).first();
         if (!conta) throw new AppError('Cobrança não encontrada.', 404, 'COBRANCA_NAO_ENCONTRADA');
         const saldo = await this.repo.saldo(this.deps.db, conta, converterValorCentavos);
-        const status =
-            conta.cancelado_em || conta.status_conta === 'CANCELADO'
-                ? 'CANCELADO'
-                : charge.status === 'AGUARDANDO_PAGAMENTO' &&
-                    new Date(charge.expira_em) <= this.now()
-                  ? 'EXPIRADO'
-                  : charge.status;
-        const payable =
-            status === 'AGUARDANDO_PAGAMENTO' &&
-            conta.status_conta === 'PENDENTE' &&
-            saldo >= converterValorCentavos(charge.valor);
+        const original =
+            charge.status === 'AGUARDANDO_PAGAMENTO' && new Date(charge.expira_em) <= this.now()
+                ? 'EXPIRADO'
+                : charge.status;
+        const { status, pagavel: payable } = situacaoFinanceiraCobranca(
+            conta,
+            saldo,
+            converterValorCentavos(charge.valor),
+            original,
+        );
         return {
             provedor: 'INFINITEPAY',
             status,
@@ -320,6 +377,8 @@ export class PagamentosService {
 
     async confirmarPublica(token: unknown, signal: unknown) {
         const charge = await this.porToken(token);
+        const view = await this.visaoPublica(charge);
+        if (view.status === 'QUITADO') return view;
         const event = await this.eventos.receber(signal, 'RETORNO', charge.id);
         await this.eventos.processar(event.id);
         return this.consultarPublica(token);
@@ -342,6 +401,8 @@ export class PagamentosService {
                 404,
                 'COBRANCA_NAO_ENCONTRADA',
             );
+        const view = await this.visaoPublica(charge);
+        if (view.status === 'QUITADO') return view;
         const event = await this.eventos.receber(signal, 'ADMIN', id);
         await this.eventos.processar(event.id);
         return this.visaoPublica((await this.repo.cobranca(id).first())!);
@@ -397,8 +458,20 @@ export class PagamentosService {
                 'a.ativo': true,
             })
             .whereNull('cr.cancelado_em')
-            .whereNotExists(db('integracoes_pagamento as padrao').select(db.raw('1')).whereRaw('padrao.organizacao_id = m.organizacao_id').where({'padrao.provedor':'ABACATEPAY','padrao.padrao':true}))
-            .whereNotExists(db('recorrencias_pagamento as rp').select(db.raw('1')).whereRaw('rp.assinatura_id = m.assinatura_id AND rp.organizacao_id = m.organizacao_id').whereNot('rp.status','CANCELADA'))
+            .whereNotExists(
+                db('integracoes_pagamento as padrao')
+                    .select(db.raw('1'))
+                    .whereRaw('padrao.organizacao_id = m.organizacao_id')
+                    .where({ 'padrao.provedor': 'ABACATEPAY', 'padrao.padrao': true }),
+            )
+            .whereNotExists(
+                db('recorrencias_pagamento as rp')
+                    .select(db.raw('1'))
+                    .whereRaw(
+                        'rp.assinatura_id = m.assinatura_id AND rp.organizacao_id = m.organizacao_id',
+                    )
+                    .whereNot('rp.status', 'CANCELADA'),
+            )
             .whereRaw(
                 'cr.organizacao_id = m.organizacao_id AND a.organizacao_id = m.organizacao_id AND cr.area_negocio_id = m.area_negocio_id',
             )
