@@ -2,6 +2,7 @@ import type { Knex } from 'knex';
 import connection from '../../database/connection.js';
 import AppError from '../../shared/errors/AppError.js';
 import autorizacaoClinicaService from '../sessoes_clinicas/autorizacao_clinica.service.js';
+import { gerarLaudoPdf, type DadosLaudoParaPdf } from './laudo.pdf.js';
 import { exigirVinculoPacienteProfissional } from '../vinculos_clinicos/vinculos_clinicos.autorizacao.js';
 import {
     validarConteudoParaTipo,
@@ -147,6 +148,74 @@ class DocumentosClinicosService {
             // Nunca enviar dados clínicos ou SQL bruto para respostas HTTP.
             throw new AppError('Auditoria clínica indisponível.', 503, 'AUDITORIA_CLINICA_INDISPONIVEL');
         }
+    }
+
+    /**
+     * Exporta PDF apenas para profissional autenticado, da organização/área e
+     * com vínculo ativo com o paciente. A autorização é revalidada em transação.
+     * Não expõe CPF nem usa identificadores passados pelo navegador como autoridade.
+     */
+    async emitirPdfLaudo(
+        contexto: ContextoDocumentoClinico,
+        id: string,
+        versaoSolicitada?: number,
+        meta?: AuditoriaDocumentoClinico,
+    ): Promise<Buffer> {
+        return this.transacao(async (trx) => {
+            const identidade = await this.profissional(contexto, trx);
+            const registro = await this.buscarRegistro(contexto, identidade.profissionalId, id, trx);
+            if (registro.tipo !== 'LAUDO') throw naoEncontrado();
+
+            const ultima = await this.ultimaVersao(id, trx);
+            const versao = versaoSolicitada === undefined
+                ? ultima
+                : await trx<Versao>('versoes_registros_clinicos')
+                    .where({
+                        registro_id: id,
+                        organizacao_id: contexto.organizacaoId,
+                        area_negocio_id: contexto.areaNegocioId,
+                        cliente_id: registro.cliente_id,
+                        versao: versaoSolicitada,
+                    }).first();
+            if (!versao) throw naoEncontrado();
+
+            const [organizacao, paciente, profissional] = await Promise.all([
+                trx('organizacoes')
+                    .where({ id: contexto.organizacaoId, ativo: true })
+                    .whereNull('deletado_em')
+                    .first('nome', 'nome_fantasia', 'cidade', 'uf'),
+                trx('clientes')
+                    .where({ id: registro.cliente_id, organizacao_id: contexto.organizacaoId })
+                    .first('nome'),
+                trx('profissionais')
+                    .where({ id: registro.profissional_id, organizacao_id: contexto.organizacaoId })
+                    .first('nome', 'conselho', 'numero_conselho', 'uf_conselho'),
+            ]) as [
+                { nome: string; nome_fantasia: string | null; cidade: string | null; uf: string | null } | undefined,
+                { nome: string } | undefined,
+                { nome: string; conselho: string | null; numero_conselho: string | null; uf_conselho: string | null } | undefined,
+            ];
+            if (!organizacao || !paciente || !profissional) throw naoEncontrado();
+
+            const conteudo = validarConteudoParaTipo('LAUDO', versao.conteudo) as DadosLaudoParaPdf['conteudo'];
+            const pdf = gerarLaudoPdf({
+                clinica: organizacao.nome_fantasia?.trim() || organizacao.nome,
+                localidade: [organizacao.cidade, organizacao.uf].filter(Boolean).join(' - '),
+                paciente: paciente.nome,
+                profissional: profissional.nome,
+                conselho: profissional.conselho,
+                numeroConselho: profissional.numero_conselho,
+                ufConselho: profissional.uf_conselho,
+                estado: versao.estado,
+                versao: versao.versao,
+                historica: versao.versao !== ultima.versao,
+                registradoEm: versao.registrado_em,
+                geradoEm: new Date(),
+                conteudo,
+            });
+            await this.auditar(trx, contexto, id, 'DOCUMENTO_CLINICO.PDF_GERADO', meta);
+            return pdf;
+        });
     }
 
     async criar(contexto: ContextoDocumentoClinico, dados: NovoDocumentoClinico, meta?: AuditoriaDocumentoClinico) {
