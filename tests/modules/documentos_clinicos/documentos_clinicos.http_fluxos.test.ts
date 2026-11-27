@@ -708,6 +708,52 @@ test('persistencia HTTP real: anamnese, laudo, evolucao e historico sobrevivem a
         .expect(401);
 });
 
+test('linha do tempo pagina mais de 50 registros sem perder sessões e laudos antigos', async () => {
+    // Inserção apenas em PostgreSQL efêmero, sem dados reais ou escrita no Neon.
+    const novasSessoes = Array.from({ length: 55 }, (_, indice) => ({
+        id: crypto.randomUUID(),
+        organizacao_id: ids.orgA,
+        area_negocio_id: ids.areaA,
+        cliente_id: ids.clienteA,
+        profissional_id: ids.profA,
+        data_sessao: new Date(Date.parse('2026-11-01T08:00:00Z') + indice * 60 * 60 * 1000),
+        evolucao: `Evolucao sintetica para validar pagina ${indice + 1}`,
+    }));
+    await connection('sessoes_clinicas').insert(novasSessoes);
+
+    const rota = `/prontuario/pacientes/${ids.clienteA}/historico`;
+    const primeira = await request(appTeste).get(rota + '?limite=50')
+        .set(headers(ids.userA)).expect(200);
+    const segunda = await request(appTeste).get(rota + '?limite=50&deslocamento=50')
+        .set(headers(ids.userA)).expect(200);
+    const primeiraLista = primeira.body.data as Array<{ id: string; data: string }>;
+    const segundaLista = segunda.body.data as Array<{ id: string; data: string }>;
+    assert.equal(primeiraLista.length, 50);
+    assert.ok(segundaLista.length > 0);
+    const todas = [...primeiraLista, ...segundaLista];
+    const idsListados = new Set(todas.map((item) => item.id));
+    assert.equal(idsListados.size, todas.length);
+    for (const sessao of novasSessoes) assert.ok(idsListados.has(sessao.id));
+    assert.ok(idsListados.has(documentoId));
+    assert.ok(idsListados.has(laudoId));
+    assert.deepEqual(
+        todas.map((item) => item.data),
+        [...todas.map((item) => item.data)].sort((a, b) => b.localeCompare(a)),
+    );
+
+    for (const query of [
+        '?deslocamento=-1', '?deslocamento=10001', '?deslocamento=abc',
+        '?deslocamento=1.5', '?limite=50&profissionalId=' + ids.profB,
+    ]) {
+        await request(appTeste).get(rota + query).set(headers(ids.userA)).expect(400);
+    }
+    await request(appTeste).get(rota + '?limite=50&deslocamento=50')
+        .set(headers(ids.admin)).expect(403);
+    await request(appTeste).get(rota + '?limite=50&deslocamento=50')
+        .set(headers(ids.userB)).expect(200)
+        .then((resposta) => assert.deepEqual(resposta.body.data, []));
+});
+
 test('historico documental rejeita DELETE e TRUNCATE fisico', async () => {
     await assert.rejects(
         connection.transaction(async (trx) => {
