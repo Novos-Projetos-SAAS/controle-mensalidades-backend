@@ -228,6 +228,7 @@ test('token público é opaco, não revela identidade e não permite outra organ
     assert.deepEqual(Object.keys(publicCharge).sort(), [
         'checkout_url',
         'expira_em',
+        'provedor',
         'status',
         'valor',
         'vencimento_em',
