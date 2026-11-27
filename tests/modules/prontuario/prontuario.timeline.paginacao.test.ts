@@ -31,7 +31,7 @@ test('valida paginação e rejeita offsets arbitrários e filtros não autorizad
         { deslocamento: ['1', '2'] },
         { limite: '50', profissionalId: 'outro' },
     ]) {
-        assert.throws(() => validarPaginacaoHistorico(query), { codigo: 'FILTRO_HISTORICO_INVALIDO' });
+        assert.throws(() => validarPaginacaoHistorico(query), { code: 'FILTRO_HISTORICO_INVALIDO' });
     }
 });
 
