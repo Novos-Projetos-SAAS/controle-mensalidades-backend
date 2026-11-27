@@ -263,6 +263,8 @@ export async function registrarRecebimentoTransacional(
         .where('m.id', mensalidadeId)
         .andWhere('m.organizacao_id', contexto.organizacaoId)
         .andWhere('m.area_negocio_id', contexto.areaNegocioId)
+        .andWhere('cr.organizacao_id', contexto.organizacaoId)
+        .andWhere('cr.area_negocio_id', contexto.areaNegocioId)
         .forUpdate('cr')
         .first();
 

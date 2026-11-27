@@ -7,6 +7,7 @@ import app from '../../../src/app.js';
 import request from 'supertest';
 import { PagamentosService } from '../../../src/modules/pagamentos/pagamentos.service.js';
 import { cifrarSegredo } from '../../../src/modules/pagamentos/credenciais.js';
+import { registrarRecebimentoTransacional } from '../../../src/modules/financeiro/financeiro.service.js';
 
 const key = Buffer.alloc(32, 7).toString('base64');
 const clock = new Date('2026-11-25T12:00:00Z');
@@ -87,6 +88,7 @@ async function fixture(t: TestContext, vencimento = '2026-11-27') {
     };
     let failCreate = false;
     let failCheck = false;
+    let beforeCheck: (() => Promise<void>) | undefined;
     const checkKeys: string[] = [];
     const service = new PagamentosService({
         db: connection,
@@ -104,6 +106,7 @@ async function fixture(t: TestContext, vencimento = '2026-11-27') {
             async checkPayment(apiKey: string) {
                 checks++;
                 checkKeys.push(apiKey);
+                await beforeCheck?.();
                 if (failCheck) throw new Error('timeout');
                 return evidence;
             },
@@ -154,6 +157,9 @@ async function fixture(t: TestContext, vencimento = '2026-11-27') {
             return payload;
         },
         checkKeys,
+        beforeCheck: (hook: () => Promise<void>) => {
+            beforeCheck = hook;
+        },
         evidence: (value: unknown) => {
             evidence = value;
         },
@@ -166,8 +172,24 @@ async function fixture(t: TestContext, vencimento = '2026-11-27') {
     };
 }
 
-function tokenOf(charge: { url_plataforma: string }) {
+function tokenOf(charge: { url_plataforma: string | null }) {
+    assert.equal(typeof charge.url_plataforma, 'string');
+    assert.ok(charge.url_plataforma);
     return charge.url_plataforma.split('/').at(-1)!;
+}
+
+async function receberManual(
+    f: Awaited<ReturnType<typeof fixture>>,
+    chave: string,
+    valor = '100.00',
+) {
+    return connection.transaction((trx) =>
+        registrarRecebimentoTransacional(trx, f.context, f.mensalidade, chave, {
+            valor,
+            forma_pagamento: 'DINHEIRO',
+            pago_em: clock.toISOString(),
+        }),
+    );
 }
 async function identifiers(charge: { id: string }, transaction = randomUUID()) {
     const row = await connection('cobrancas_pagamento').where('id', charge.id).first();
@@ -294,22 +316,26 @@ test('retorno falso ou pertencente a outra cobrança não recebe baixa', async (
 test('pagamento após baixa manual fica em revisão sem somar novamente', async (t) => {
     const f = await fixture(t);
     const charge = await f.service.gerarCobranca(f.context, f.mensalidade);
-    await connection('pagamentos').insert({
-        organizacao_id: f.org,
-        conta_receber_id: f.conta,
-        valor: '100.00',
-        forma_pagamento: 'DINHEIRO',
-        origem: 'MANUAL',
-        pago_em: clock,
-    });
-    await connection('contas_receber').where('id', f.conta).update({ status: 'PAGO' });
-    await f.service.confirmarPublica(tokenOf(charge), await identifiers(charge));
-    assert.equal((await f.service.consultarPublica(tokenOf(charge))).status, 'PAGO_EM_REVISAO');
+    await receberManual(f, 'manual-before-webhook');
+    await f.service.receberSinal(await identifiers(charge), 'WEBHOOK');
+    await f.service.processarEventos();
+    assert.equal((await f.service.consultarPublica(tokenOf(charge))).status, 'QUITADO');
     assert.equal((await connection('pagamentos').where('organizacao_id', f.org)).length, 1);
+    assert.equal(
+        (await connection('pagamentos').where('organizacao_id', f.org).first()).origem,
+        'MANUAL',
+    );
     assert.equal(
         (await connection('transacoes_pagamento').where('organizacao_id', f.org).first()).status,
         'REVISAO',
     );
+    assert.equal(
+        (await connection('historico_mensalidades').where('mensalidade_id', f.mensalidade)).length,
+        1,
+    );
+    const event = await connection('eventos_webhook').where('organizacao_id', f.org).first();
+    assert.equal(event.status, 'CONCLUIDO');
+    assert.ok(event.resultado);
 });
 
 test('agendamento gera na janela de 2 dias, recupera execução perdida e não gera vencidas', async (t) => {
@@ -560,14 +586,12 @@ test('reinício com criação em andamento registra incerteza sem reenviar links
 
 test('checkout envia contatos do cliente normalizados sem persistir cópia de dados pessoais', async (t) => {
     const f = await fixture(t);
-    await connection('clientes')
-        .where('id', f.cliente)
-        .update({
-            nome: '  Maria  Teste ',
-            email: ' CLIENTE@EXAMPLE.COM ',
-            telefone: '(11) 99999-9999',
-            observacao: 'Informação clínica privada',
-        });
+    await connection('clientes').where('id', f.cliente).update({
+        nome: '  Maria  Teste ',
+        email: ' CLIENTE@EXAMPLE.COM ',
+        telefone: '(11) 99999-9999',
+        observacao: 'Informação clínica privada',
+    });
     const charge = await f.service.gerarCobranca(f.context, f.mensalidade);
     assert.deepEqual(f.payload.customer, {
         name: 'Maria Teste',
@@ -646,4 +670,150 @@ test('alterar contato após gerar checkout não recria link nem muda a cobrança
     assert.equal(f.creates, 1);
     assert.deepEqual(f.payload.customer, { name: 'Nome Original', email: 'original@example.com' });
     assert.equal(repeated.valor, '100.00');
+});
+
+test('baixa manual integral encerra as consultas pública e administrativa sem consultar o provedor', async (t) => {
+    const f = await fixture(t);
+    const charge = await f.service.gerarCobranca(f.context, f.mensalidade);
+    const token = tokenOf(charge);
+    const ids = await identifiers(charge);
+    await receberManual(f, 'manual-full');
+    const checks = f.checks;
+    for (const view of [
+        await f.service.consultarPublica(token),
+        await f.service.consultarCobranca(f.context, f.mensalidade),
+        await f.service.confirmarPublica(token, ids),
+        await f.service.conciliar(f.context, charge.id, ids),
+    ]) {
+        assert.equal(view?.status, 'QUITADO');
+        assert.equal(view?.checkout_url, null);
+    }
+    assert.equal(
+        (await f.service.consultarCobranca(f.context, f.mensalidade))?.url_plataforma,
+        null,
+    );
+    assert.equal(f.checks, checks);
+    assert.equal(
+        (await connection('transacoes_pagamento').where('organizacao_id', f.org)).length,
+        0,
+    );
+    assert.equal((await connection('pagamentos').where('organizacao_id', f.org)).length, 1);
+});
+
+test('baixa manual parcial bloqueia o link antigo e mantém o saldo restante', async (t) => {
+    const f = await fixture(t);
+    const charge = await f.service.gerarCobranca(f.context, f.mensalidade);
+    const token = tokenOf(charge);
+    await receberManual(f, 'manual-partial', '20.00');
+    const view = await f.service.consultarPublica(token);
+    assert.equal(view.status, 'SALDO_ATUALIZADO');
+    assert.equal(view.checkout_url, null);
+    const admin = await f.service.consultarCobranca(f.context, f.mensalidade);
+    assert.equal(admin?.status, 'SALDO_ATUALIZADO');
+    assert.equal(admin?.url_plataforma, null);
+    const account = await connection('contas_receber').where('id', f.conta).first();
+    assert.equal(account.status, 'PENDENTE');
+    const payments = await connection('pagamentos').where('organizacao_id', f.org);
+    assert.equal(payments.length, 1);
+    assert.equal(payments[0].valor, '20.00');
+});
+
+test('webhook liquidado antes do recebimento manual rejeita nova baixa com 409', async (t) => {
+    const f = await fixture(t);
+    const charge = await f.service.gerarCobranca(f.context, f.mensalidade);
+    await f.service.receberSinal(await identifiers(charge), 'WEBHOOK');
+    await f.service.processarEventos();
+    await assert.rejects(receberManual(f, 'manual-after-provider'), { statusCode: 409 });
+    const payments = await connection('pagamentos').where('organizacao_id', f.org);
+    assert.equal(payments.length, 1);
+    assert.equal(payments[0].origem, 'INFINITEPAY');
+    assert.equal(
+        (await connection('historico_mensalidades').where('mensalidade_id', f.mensalidade)).length,
+        1,
+    );
+});
+
+test('recebimento manual concorrente com webhook mantém um único recebimento', async (t) => {
+    const f = await fixture(t);
+    const charge = await f.service.gerarCobranca(f.context, f.mensalidade);
+    const ids = await identifiers(charge);
+    await Promise.all([
+        receberManual(f, 'manual-provider-race').catch((error: unknown) => {
+            assert.equal((error as { statusCode?: number }).statusCode, 409);
+        }),
+        f.service.receberSinal(ids, 'WEBHOOK').then(() => f.service.processarEventos()),
+    ]);
+    const payments = await connection('pagamentos').where('organizacao_id', f.org);
+    assert.equal(payments.length, 1);
+    assert.equal(payments[0].valor, '100.00');
+    assert.equal((await connection('contas_receber').where('id', f.conta).first()).status, 'PAGO');
+    assert.equal(
+        (await connection('historico_mensalidades').where('mensalidade_id', f.mensalidade)).length,
+        1,
+    );
+});
+
+test('intenção persistida e quitada manualmente não envia novo POST ao criar checkout', async (t) => {
+    const f = await fixture(t);
+    const create = t.mock.method(f.service, 'criarCheckout', async () => {});
+    const charge = await f.service.gerarCobranca(f.context, f.mensalidade);
+    create.mock.restore();
+    assert.equal(f.creates, 0);
+    await receberManual(f, 'manual-pending-intent');
+    await f.service.criarCheckout(charge.id);
+    assert.equal(f.creates, 0);
+    assert.equal((await f.service.consultarCobranca(f.context, f.mensalidade))?.status, 'QUITADO');
+});
+
+test('worker com lease substituído durante a consulta externa não produz efeito financeiro', async (t) => {
+    const f = await fixture(t);
+    const charge = await f.service.gerarCobranca(f.context, f.mensalidade);
+    const event = await f.service.receberSinal(await identifiers(charge), 'WEBHOOK');
+    let release!: () => void;
+    let started!: () => void;
+    const gate = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    const lookupStarted = new Promise<void>((resolve) => {
+        started = resolve;
+    });
+    f.beforeCheck(async () => {
+        started();
+        await gate;
+    });
+    const processing = f.service.processarEventos();
+    await Promise.race([
+        lookupStarted,
+        processing.then(() => {
+            throw new Error('Consulta externa não iniciada.');
+        }),
+    ]);
+    const newLease = randomUUID();
+    try {
+        await connection('eventos_webhook')
+            .where('id', event.id)
+            .update({
+                lease_token: newLease,
+                lease_ate: new Date(clock.getTime() + 60000),
+            });
+    } finally {
+        release();
+    }
+    await processing;
+    assert.equal((await connection('pagamentos').where('organizacao_id', f.org)).length, 0);
+    assert.equal(
+        (await connection('transacoes_pagamento').where('organizacao_id', f.org)).length,
+        0,
+    );
+    assert.equal(
+        (await connection('historico_mensalidades').where('mensalidade_id', f.mensalidade)).length,
+        0,
+    );
+    assert.equal(
+        (await connection('contas_receber').where('id', f.conta).first()).status,
+        'PENDENTE',
+    );
+    const retained = await connection('eventos_webhook').where('id', event.id).first();
+    assert.equal(retained.status, 'PROCESSANDO');
+    assert.equal(retained.lease_token, newLease);
 });

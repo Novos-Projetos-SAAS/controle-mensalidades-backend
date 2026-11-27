@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { exigirPosseEvento, type PosseEvento } from '../evento-lease.js';
 import { z } from 'zod';
 import type { Knex } from 'knex';
 import AppError from '../../../shared/errors/AppError.js';
@@ -356,15 +357,12 @@ export class RecorrenciasAbacatePay {
                 this.validar(r, sub);
                 if (sub.status !== 'CANCELLED') return (await this.consultar(c, id))!;
             }
-            await this.d
-                .db('recorrencias_pagamento')
-                .where('id', r.id)
-                .update({
-                    status: 'CANCELADA',
-                    assinatura_externa_id: r.assinatura_externa_id,
-                    cancelado_em: this.d.now(),
-                    ultimo_erro: null,
-                });
+            await this.d.db('recorrencias_pagamento').where('id', r.id).update({
+                status: 'CANCELADA',
+                assinatura_externa_id: r.assinatura_externa_id,
+                cancelado_em: this.d.now(),
+                ultimo_erro: null,
+            });
             await auditoria(this.d.db, c, 'RECORRENCIA_CANCELADA', r.id, { assinatura_id: id });
         } catch {
             await this.d
@@ -380,9 +378,57 @@ export class RecorrenciasAbacatePay {
         checkout: AbacatePayCheckout,
         payment: AbacatePayPayment | undefined,
         subscription: AbacatePaySubscription,
+        evento?: PosseEvento,
     ) {
         const credential = credenciais(this.snapshot(r), this.d.key());
         const official = await this.d.provider.getSubscription(credential, { id: subscription.id });
+        if (evento) {
+            const result = await this.d.db.transaction(async (trx) => {
+                await exigirPosseEvento(trx, evento, this.d.now());
+                const d = { ...this.d, db: trx };
+                const recursos = new RecursosAbacatePay(d);
+                const charges = new CobrancasAbacatePay(d, recursos);
+                const recurring = new RecorrenciasAbacatePay(d, recursos, charges);
+                try {
+                    await recurring.aplicarEvento(
+                        r,
+                        event,
+                        checkout,
+                        payment,
+                        subscription,
+                        official,
+                    );
+                    return null;
+                } catch (error) {
+                    if (error instanceof AppError && error.code === 'DATA_DEBITO_INCOMPATIVEL')
+                        return error;
+                    const pending = await trx('recorrencias_pagamento')
+                        .where({
+                            id: r.id,
+                            organizacao_id: r.organizacao_id,
+                            status: 'CANCELAMENTO_PENDENTE',
+                            ultimo_erro: 'DATA_DEBITO_INCOMPATIVEL',
+                            assinatura_externa_id: official.id,
+                        })
+                        .first('id');
+                    if (pending) return error;
+                    throw error;
+                }
+            });
+            if (result) throw result;
+            return;
+        }
+        return this.aplicarEvento(r, event, checkout, payment, subscription, official);
+    }
+    private async aplicarEvento(
+        r: Recorrencia,
+        event: string,
+        checkout: AbacatePayCheckout,
+        payment: AbacatePayPayment | undefined,
+        subscription: AbacatePaySubscription,
+        official: AbacatePaySubscription,
+    ) {
+        const credential = credenciais(this.snapshot(r), this.d.key());
         this.validar(r, official);
         if (
             subscription.currency !== 'BRL' ||

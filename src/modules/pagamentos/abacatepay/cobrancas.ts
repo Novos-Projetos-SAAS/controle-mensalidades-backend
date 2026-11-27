@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Knex } from 'knex';
+import { exigirPosseEvento, type PosseEvento } from '../evento-lease.js';
 import AppError from '../../../shared/errors/AppError.js';
 import { registrarRecebimentoTransacional } from '../../financeiro/financeiro.service.js';
 import { converterValorCentavos, formatarCentavos } from '../../financeiro/financeiro.validator.js';
@@ -17,6 +18,7 @@ import {
     type Dependencias,
 } from './model.js';
 import { RecursosAbacatePay } from './recursos.js';
+import { situacaoFinanceiraCobranca } from '../situacao-cobranca.js';
 import type { AbacatePayCheckout, AbacatePayPayment } from './types.js';
 
 export type CobrancaAbacate = Cobranca & {
@@ -165,19 +167,42 @@ export class CobrancasAbacatePay {
             const token = this.token(charge),
                 completion = new URL(String(charge.payload_checkout.completionUrl));
             completion.searchParams.set('token', token);
-            const official = await this.d.provider.createCheckout(
-                credenciais(this.snapshot(charge), this.d.key()),
-                {
-                    externalId: charge.identificador_externo,
-                    items: [{ id: productId, quantity: 1 }],
-                    ...(customerId ? { customerId } : {}),
-                    methods: ['PIX', 'CARD'],
-                    returnUrl: String(charge.payload_checkout.returnUrl),
-                    completionUrl: completion.href,
-                    card: { maxInstallments: 1, passFeesToCustomer: false },
-                },
-            );
-            await this.salvarCheckout(charge, official);
+            await this.d.db.transaction(async (trx) => {
+                const currentAccount = await this.repo
+                    .contaDaCobranca(trx, charge)
+                    .forUpdate('cr')
+                    .first();
+                const current = await this.query(id, trx).forUpdate().first();
+                if (!current || current.status !== 'CRIANDO') return;
+                const saldo = currentAccount
+                    ? await this.repo.saldo(trx, currentAccount, converterValorCentavos)
+                    : 0n;
+                if (
+                    !currentAccount ||
+                    currentAccount.cancelado_em ||
+                    currentAccount.status_conta !== 'PENDENTE' ||
+                    saldo !== converterValorCentavos(charge.valor)
+                ) {
+                    await this.query(id, trx).update({
+                        status: 'CANCELADO',
+                        ultimo_erro: 'SALDO_ATUALIZADO',
+                    });
+                    return;
+                }
+                const official = await this.d.provider.createCheckout(
+                    credenciais(this.snapshot(charge), this.d.key()),
+                    {
+                        externalId: charge.identificador_externo,
+                        items: [{ id: productId, quantity: 1 }],
+                        ...(customerId ? { customerId } : {}),
+                        methods: ['PIX', 'CARD'],
+                        returnUrl: String(charge.payload_checkout.returnUrl),
+                        completionUrl: completion.href,
+                        card: { maxInstallments: 1, passFeesToCustomer: false },
+                    },
+                );
+                await this.salvarCheckout(charge, official, trx);
+            });
         } catch (error) {
             await this.query(id)
                 .where('status', 'CRIANDO')
@@ -188,14 +213,18 @@ export class CobrancasAbacatePay {
                 });
         }
     }
-    async salvarCheckout(charge: CobrancaAbacate, official: AbacatePayCheckout) {
+    async salvarCheckout(
+        charge: CobrancaAbacate,
+        official: AbacatePayCheckout,
+        trx: Knex | Knex.Transaction = this.d.db,
+    ) {
         if (
             official.externalId !== charge.identificador_externo ||
             official.amount !== Number(converterValorCentavos(charge.valor)) ||
             official.frequency === 'SUBSCRIPTION'
         )
             throw falha('O valor da cobrança precisa ser conferido.', 'ABACATEPAY_DIVERGENCIA');
-        await this.query(charge.id)
+        await this.query(charge.id, trx)
             .whereNotIn('status', ['PAGO_VERIFICADO', 'PAGO_EM_REVISAO'])
             .update({
                 recurso_externo_id: official.id,
@@ -218,17 +247,18 @@ export class CobrancasAbacatePay {
         const conta = await this.repo.contaDaCobranca(this.d.db, c).first();
         if (!conta) throw falha('Cobrança não encontrada.', 'COBRANCA_NAO_ENCONTRADA', 404);
         const saldo = await this.repo.saldo(this.d.db, conta, converterValorCentavos);
-        const status =
-            conta.cancelado_em || conta.status_conta === 'CANCELADO' ? 'CANCELADO' : c.status;
+        const { status, pagavel } = situacaoFinanceiraCobranca(
+            conta,
+            saldo,
+            converterValorCentavos(c.valor),
+            c.status,
+        );
         return {
             provedor: 'ABACATEPAY' as const,
             status,
             valor: c.valor,
             vencimento_em: dataIso(conta.vencimento_em),
-            checkout_url:
-                status === 'AGUARDANDO_PAGAMENTO' && saldo >= converterValorCentavos(c.valor)
-                    ? c.checkout_url
-                    : null,
+            checkout_url: pagavel ? c.checkout_url : null,
             expira_em: null,
         };
     }
@@ -249,16 +279,21 @@ export class CobrancasAbacatePay {
             })
             .orderBy('criado_em', 'desc')
             .first();
-        return charge
-            ? {
-                  id: charge.id,
-                  ...(await this.publica(charge)),
-                  url_plataforma: charge.token_criptografado
-                      ? `/pagamento/${this.token(charge)}`
-                      : null,
-                  ultimo_erro: charge.ultimo_erro,
-              }
-            : null;
+        if (!charge) return null;
+        const view = await this.publica(charge);
+        return {
+            id: charge.id,
+            ...view,
+            url_plataforma:
+                charge.token_criptografado &&
+                !['QUITADO', 'SALDO_ATUALIZADO', 'PAGO_VERIFICADO', 'CANCELADO'].includes(
+                    view.status,
+                )
+                    ? `/pagamento/${this.token(charge)}`
+                    : null,
+            ultimo_erro: charge.ultimo_erro,
+            requer_conferencia: charge.status === 'PAGO_EM_REVISAO',
+        };
     }
     async conciliar(c: Contexto, id: string) {
         const charge = await this.query(id).where('organizacao_id', c.organizacaoId).first();
@@ -270,6 +305,8 @@ export class CobrancasAbacatePay {
                 .first())
         )
             throw falha('Cobrança não encontrada nesta área.', 'COBRANCA_NAO_ENCONTRADA', 404);
+        const view = await this.publica(charge);
+        if (view.status === 'QUITADO') return view;
         try {
             const official = await this.d.provider.getCheckout(
                 credenciais(this.snapshot(charge), this.d.key()),
@@ -321,8 +358,10 @@ export class CobrancasAbacatePay {
         checkout: AbacatePayCheckout,
         recorrente = false,
         metodo?: 'CARD' | 'PIX',
+        evento?: PosseEvento,
     ) {
         await this.d.db.transaction(async (trx) => {
+            if (evento) await exigirPosseEvento(trx, evento, this.d.now());
             const account = await this.repo.contaDaCobranca(trx, charge).forUpdate('cr').first();
             if (!account) throw falha('Vínculo de cobrança inválido.');
             const current = (await this.query(charge.id, trx).forUpdate().first())!;

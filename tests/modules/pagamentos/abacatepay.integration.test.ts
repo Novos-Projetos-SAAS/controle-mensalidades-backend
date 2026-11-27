@@ -5,6 +5,8 @@ import connection from '../../../src/database/connection.js';
 import { AbacatePayService } from '../../../src/modules/pagamentos/abacatepay/abacatepay.service.js';
 import { PagamentosService } from '../../../src/modules/pagamentos/pagamentos.service.js';
 import { AbacatePayProvider } from '../../../src/modules/pagamentos/abacatepay/abacatepay.provider.js';
+import { registrarRecebimentoTransacional } from '../../../src/modules/financeiro/financeiro.service.js';
+import AppError from '../../../src/shared/errors/AppError.js';
 
 const key = Buffer.alloc(32, 19).toString('base64');
 const secret = 'webhook_test_secret_exclusivo_32_caracteres';
@@ -82,6 +84,8 @@ async function fixture(t: TestContext) {
         failCreate = false,
         now = new Date('2026-11-25T12:00:00Z');
     let customerPayload: Record<string, unknown> | null = null;
+    let lookups = 0;
+    let beforeLookup: (() => Promise<void>) | undefined;
     const fetcher: typeof fetch = async (input, init) => {
         const url = new URL(String(input));
         const body = init?.body ? JSON.parse(String(init.body)) : {};
@@ -140,6 +144,8 @@ async function fixture(t: TestContext) {
             url.pathname.endsWith('/checkouts/get') ||
             url.pathname.endsWith('/subscriptions/checkouts/get')
         ) {
+            lookups++;
+            await beforeLookup?.();
             data =
                 checkouts.get(url.searchParams.get('externalId') ?? '') ??
                 [...checkouts.values()].find((x) => x.id === url.searchParams.get('id'));
@@ -162,13 +168,14 @@ async function fixture(t: TestContext) {
             pagination: { hasMore: false, next: null, before: null },
         });
     };
+    const provider = new AbacatePayProvider({ fetcher });
     const service = new AbacatePayService({
         db: connection,
         key: () => key,
         now: () => now,
         origens: () => new Set(['https://plataforma.example']),
         ambiente: () => 'test',
-        provider: new AbacatePayProvider({ fetcher }),
+        provider,
     });
     await service.atualizarConfiguracao(
         context,
@@ -218,6 +225,7 @@ async function fixture(t: TestContext) {
         subscription?: Record<string, unknown>,
         amount = 10000,
         paidAt = now.toISOString(),
+        process = true,
     ) => {
         const checkout = [...checkouts.values()][0]!;
         const payload = {
@@ -258,7 +266,7 @@ async function fixture(t: TestContext) {
             secret,
             createHmac('sha256', hmacKey).update(raw).digest('base64'),
         );
-        await service.processarEventos();
+        if (process) await service.processarEventos();
         return raw;
     };
     return {
@@ -271,9 +279,16 @@ async function fixture(t: TestContext) {
         mensalidade,
         context,
         service,
+        provider,
         subscriptions,
         checkouts,
         envelope,
+        get lookups() {
+            return lookups;
+        },
+        beforeLookup: (hook: () => Promise<void>) => {
+            beforeLookup = hook;
+        },
         get calls() {
             return calls;
         },
@@ -287,6 +302,25 @@ async function fixture(t: TestContext) {
             now = value;
         },
     };
+}
+
+function tokenOf(charge: { url_plataforma: string | null }) {
+    assert.ok(charge.url_plataforma);
+    return charge.url_plataforma.split('/').at(-1)!;
+}
+
+async function receberManual(
+    f: Awaited<ReturnType<typeof fixture>>,
+    chave: string,
+    valor = '100.00',
+) {
+    return connection.transaction((trx) =>
+        registrarRecebimentoTransacional(trx, f.context, f.mensalidade, chave, {
+            valor,
+            forma_pagamento: 'DINHEIRO',
+            pago_em: '2026-11-25T12:00:00Z',
+        }),
+    );
 }
 
 test('AbacatePay configuração cifra segredos e isola organização', async (t) => {
@@ -563,8 +597,6 @@ test('confirmação recebida após desativar integração continua verificável'
 test('recebimento manual anterior preserva histórico e envia pagamento externo para revisão', async (t) => {
     const f = await fixture(t);
     await f.service.gerarCobranca(f.context, f.mensalidade);
-    const { registrarRecebimentoTransacional } =
-        await import('../../../src/modules/financeiro/financeiro.service.js');
     await connection.transaction((trx) =>
         registrarRecebimentoTransacional(trx, f.context, f.mensalidade, 'manual-before-provider', {
             valor: '100.00',
@@ -576,9 +608,16 @@ test('recebimento manual anterior preserva histórico e envia pagamento externo 
     const pays = await connection('pagamentos').where('organizacao_id', f.org);
     assert.equal(pays.length, 1);
     assert.equal(pays[0].origem, 'MANUAL');
+    assert.equal((await f.service.consultarCobranca(f.context, f.mensalidade))?.status, 'QUITADO');
+    const charge = await connection('cobrancas_pagamento').where('organizacao_id', f.org).first();
+    assert.equal(charge.status, 'PAGO_EM_REVISAO');
     assert.equal(
-        (await f.service.consultarCobranca(f.context, f.mensalidade))?.status,
-        'PAGO_EM_REVISAO',
+        (await connection('transacoes_pagamento').where('organizacao_id', f.org).first()).status,
+        'REVISAO',
+    );
+    assert.equal(
+        (await connection('historico_mensalidades').where('mensalidade_id', f.mensalidade)).length,
+        1,
     );
 });
 
@@ -663,14 +702,12 @@ test('contrato com término definido não inicia autorização sem encerramento 
 test('retoma intenção avulsa persistida antes de iniciar chamada externa', async (t) => {
     const f = await fixture(t);
     const c = await f.service.gerarCobranca(f.context, f.mensalidade);
-    await connection('cobrancas_pagamento')
-        .where('id', c.id)
-        .update({
-            status: 'AGUARDANDO_CRIACAO',
-            recurso_externo_id: null,
-            checkout_url: null,
-            criacao_iniciada_em: null,
-        });
+    await connection('cobrancas_pagamento').where('id', c.id).update({
+        status: 'AGUARDANDO_CRIACAO',
+        recurso_externo_id: null,
+        checkout_url: null,
+        criacao_iniciada_em: null,
+    });
     f.checkouts.clear();
     await f.service.recuperarIntencoes();
     assert.equal(f.calls, 2);
@@ -682,19 +719,358 @@ test('retoma intenção avulsa persistida antes de iniciar chamada externa', asy
 test('retoma adesão persistida antes de iniciar checkout', async (t) => {
     const f = await fixture(t);
     const r = await f.service.criarRecorrencia(f.context, f.assinatura, { metodo: 'CARD' });
-    await connection('recorrencias_pagamento')
-        .where('id', r.id)
-        .update({
-            status: 'PREPARANDO',
-            operacao_iniciada_em: null,
-            checkout_externo_id: null,
-            checkout_url: null,
-        });
+    await connection('recorrencias_pagamento').where('id', r.id).update({
+        status: 'PREPARANDO',
+        operacao_iniciada_em: null,
+        checkout_externo_id: null,
+        checkout_url: null,
+    });
     f.checkouts.clear();
     await f.service.recuperarIntencoes();
     assert.equal(f.calls, 2);
     assert.equal(
         (await f.service.consultarRecorrencia(f.context, f.assinatura))?.status,
         'AGUARDANDO_AUTORIZACAO',
+    );
+});
+
+test('baixa manual integral bloqueia checkout público e administrativo sem consulta AbacatePay', async (t) => {
+    const f = await fixture(t);
+    const charge = await f.service.gerarCobranca(f.context, f.mensalidade);
+    const token = tokenOf(charge);
+    await receberManual(f, 'manual-full');
+    const lookups = f.lookups;
+    for (const view of [
+        await f.service.consultarPublica(token),
+        await f.service.consultarCobranca(f.context, f.mensalidade),
+        await f.service.confirmarPublica(token),
+        await f.service.conciliar(f.context, charge.id),
+    ]) {
+        assert.equal(view?.status, 'QUITADO');
+        assert.equal(view?.checkout_url, null);
+    }
+    assert.equal(
+        (await f.service.consultarCobranca(f.context, f.mensalidade))?.url_plataforma,
+        null,
+    );
+    assert.equal(f.lookups, lookups);
+    assert.equal((await connection('pagamentos').where('organizacao_id', f.org)).length, 1);
+    assert.equal(
+        (await connection('transacoes_pagamento').where('organizacao_id', f.org)).length,
+        0,
+    );
+});
+
+test('baixa manual parcial apresenta saldo atualizado e bloqueia o checkout AbacatePay antigo', async (t) => {
+    const f = await fixture(t);
+    const charge = await f.service.gerarCobranca(f.context, f.mensalidade);
+    const token = tokenOf(charge);
+    await receberManual(f, 'manual-partial', '20.00');
+    const view = await f.service.consultarPublica(token);
+    assert.equal(view.status, 'SALDO_ATUALIZADO');
+    assert.equal(view.checkout_url, null);
+    const admin = await f.service.consultarCobranca(f.context, f.mensalidade);
+    assert.equal(admin?.status, 'SALDO_ATUALIZADO');
+    assert.equal(admin?.url_plataforma, null);
+    assert.equal(
+        (await connection('contas_receber').where('id', f.conta).first()).status,
+        'PENDENTE',
+    );
+    const payments = await connection('pagamentos').where('organizacao_id', f.org);
+    assert.equal(payments.length, 1);
+    assert.equal(payments[0].valor, '20.00');
+});
+
+test('pagamento AbacatePay anterior faz recebimento manual retornar 409 sem duplicidade', async (t) => {
+    const f = await fixture(t);
+    await f.service.gerarCobranca(f.context, f.mensalidade);
+    await f.envelope('checkout.completed', 'paid-before-manual');
+    await assert.rejects(receberManual(f, 'manual-after-provider'), { statusCode: 409 });
+    const payments = await connection('pagamentos').where('organizacao_id', f.org);
+    assert.equal(payments.length, 1);
+    assert.equal(payments[0].origem, 'ABACATEPAY');
+    assert.equal(
+        (await connection('historico_mensalidades').where('mensalidade_id', f.mensalidade)).length,
+        1,
+    );
+});
+
+test('webhook AbacatePay e baixa manual concorrentes mantêm um único recebimento', async (t) => {
+    const f = await fixture(t);
+    await f.service.gerarCobranca(f.context, f.mensalidade);
+    await Promise.all([
+        receberManual(f, 'manual-provider-race').catch((error: unknown) => {
+            assert.equal((error as { statusCode?: number }).statusCode, 409);
+        }),
+        f.envelope('checkout.completed', 'manual-race'),
+    ]);
+    const payments = await connection('pagamentos').where('organizacao_id', f.org);
+    assert.equal(payments.length, 1);
+    assert.equal(payments[0].valor, '100.00');
+    assert.equal((await connection('contas_receber').where('id', f.conta).first()).status, 'PAGO');
+    assert.equal(
+        (await connection('historico_mensalidades').where('mensalidade_id', f.mensalidade)).length,
+        1,
+    );
+});
+
+test('intenção AbacatePay quitada antes da criação não envia POST de checkout', async (t) => {
+    const f = await fixture(t);
+    const create = t.mock.method(f.service.cobrancas, 'criar', async () => {});
+    const charge = await f.service.gerarCobranca(f.context, f.mensalidade);
+    create.mock.restore();
+    assert.equal(f.calls, 0);
+    await receberManual(f, 'manual-pending-intent');
+    await f.service.cobrancas.criar(charge.id);
+    assert.equal(f.calls, 0);
+    assert.equal((await f.service.consultarCobranca(f.context, f.mensalidade))?.status, 'QUITADO');
+});
+
+test('lease AbacatePay substituído durante a consulta externa impede efeitos financeiros', async (t) => {
+    const f = await fixture(t);
+    await f.service.gerarCobranca(f.context, f.mensalidade);
+    await f.envelope(
+        'checkout.completed',
+        'lost-lease',
+        undefined,
+        10000,
+        '2026-11-25T12:00:00Z',
+        false,
+    );
+    const event = await connection('eventos_webhook').where('organizacao_id', f.org).first();
+    let release!: () => void;
+    let started!: () => void;
+    const gate = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    const lookupStarted = new Promise<void>((resolve) => {
+        started = resolve;
+    });
+    f.beforeLookup(async () => {
+        started();
+        await gate;
+    });
+    const processing = f.service.processarEventos();
+    await Promise.race([
+        lookupStarted,
+        processing.then(() => {
+            throw new Error('Consulta externa não iniciada.');
+        }),
+    ]);
+    const newLease = randomUUID();
+    try {
+        await connection('eventos_webhook').where('id', event.id).update({
+            lease_token: newLease,
+            lease_ate: '2026-11-25T12:01:00Z',
+        });
+    } finally {
+        release();
+    }
+    await processing;
+    assert.equal((await connection('pagamentos').where('organizacao_id', f.org)).length, 0);
+    assert.equal(
+        (await connection('transacoes_pagamento').where('organizacao_id', f.org)).length,
+        0,
+    );
+    assert.equal(
+        (await connection('historico_mensalidades').where('mensalidade_id', f.mensalidade)).length,
+        0,
+    );
+    assert.equal(
+        (await connection('contas_receber').where('id', f.conta).first()).status,
+        'PENDENTE',
+    );
+    const retained = await connection('eventos_webhook').where('id', event.id).first();
+    assert.equal(retained.status, 'PROCESSANDO');
+    assert.equal(retained.lease_token, newLease);
+});
+
+test('mesmo ID de evento AbacatePay com identidade financeira alterada é rejeitado preservando o original', async (t) => {
+    const f = await fixture(t);
+    await f.service.gerarCobranca(f.context, f.mensalidade);
+    const raw = await f.envelope('checkout.completed', 'original-payment');
+    const original = await connection('eventos_webhook').where('organizacao_id', f.org).first();
+    const changed = JSON.parse(raw.toString()) as { data: { checkout: Record<string, unknown> } };
+    changed.data.checkout.externalId = randomUUID();
+    const conflicting = Buffer.from(JSON.stringify(changed));
+    const config = await f.service.lerConfiguracao(f.context);
+    await assert.rejects(
+        f.service.receberWebhook(
+            config.id!,
+            conflicting,
+            secret,
+            createHmac('sha256', hmacKey).update(conflicting).digest('base64'),
+        ),
+    );
+    const retained = await connection('eventos_webhook').where('id', original.id).first();
+    assert.deepEqual(retained.payload, original.payload);
+    assert.equal(retained.tipo_evento, original.tipo_evento);
+    assert.equal((await connection('eventos_webhook').where('organizacao_id', f.org)).length, 1);
+    assert.equal((await connection('pagamentos').where('organizacao_id', f.org)).length, 1);
+});
+
+test('entregas e processadores AbacatePay paralelos gravam um único evento e recebimento', async (t) => {
+    const f = await fixture(t);
+    await f.service.gerarCobranca(f.context, f.mensalidade);
+    const raw = await f.envelope(
+        'checkout.completed',
+        'parallel-delivery',
+        undefined,
+        10000,
+        '2026-11-25T12:00:00Z',
+        false,
+    );
+    const cfg = await f.service.lerConfiguracao(f.context);
+    const signature = createHmac('sha256', hmacKey).update(raw).digest('base64');
+    await Promise.all([
+        f.service.receberWebhook(cfg.id!, raw, secret, signature),
+        f.service.receberWebhook(cfg.id!, raw, secret, signature),
+        f.service.processarEventos(),
+        f.service.processarEventos(),
+    ]);
+    assert.equal((await connection('eventos_webhook').where('organizacao_id', f.org)).length, 1);
+    assert.equal(
+        (await connection('transacoes_pagamento').where('organizacao_id', f.org)).length,
+        1,
+    );
+    assert.equal((await connection('pagamentos').where('organizacao_id', f.org)).length, 1);
+    assert.equal(
+        (await connection('historico_mensalidades').where('mensalidade_id', f.mensalidade)).length,
+        1,
+    );
+    assert.equal((await connection('contas_receber').where('id', f.conta).first()).status, 'PAGO');
+});
+
+test('lease AbacatePay expirado recupera processamento e não repete baixa anterior ao checkpoint', async (t) => {
+    const f = await fixture(t);
+    await f.service.gerarCobranca(f.context, f.mensalidade);
+    await f.envelope(
+        'checkout.completed',
+        'expired-lease',
+        undefined,
+        10000,
+        '2026-11-25T12:00:00Z',
+        false,
+    );
+    const event = await connection('eventos_webhook').where('organizacao_id', f.org).first();
+    for (let cycle = 0; cycle < 2; cycle++) {
+        await connection('eventos_webhook').where('id', event.id).update({
+            status: 'PROCESSANDO',
+            lease_token: randomUUID(),
+            lease_ate: '2026-11-25T11:59:00Z',
+            processado_em: null,
+        });
+        await f.service.processarEventos();
+        const recovered = await connection('eventos_webhook').where('id', event.id).first();
+        assert.equal(recovered.status, 'CONCLUIDO');
+        assert.equal(recovered.lease_token, null);
+        assert.equal(recovered.lease_ate, null);
+        assert.equal((await connection('pagamentos').where('organizacao_id', f.org)).length, 1);
+        assert.equal(
+            (await connection('transacoes_pagamento').where('organizacao_id', f.org)).length,
+            1,
+        );
+        assert.equal(
+            (await connection('historico_mensalidades').where('mensalidade_id', f.mensalidade))
+                .length,
+            1,
+        );
+    }
+});
+
+test('indisponibilidade AbacatePay mantém backoff e encerra a oitava tentativa sem baixa', async (t) => {
+    const f = await fixture(t);
+    await f.service.gerarCobranca(f.context, f.mensalidade);
+    await f.envelope(
+        'checkout.completed',
+        'unavailable',
+        undefined,
+        10000,
+        '2026-11-25T12:00:00Z',
+        false,
+    );
+    f.beforeLookup(async () => {
+        throw new Error('network unavailable');
+    });
+    for (let attempt = 1; attempt <= 8; attempt++) {
+        const now = new Date(Date.UTC(2026, 10, 25, 12, 5 * attempt));
+        f.now = now;
+        await f.service.processarEventos();
+        const event = await connection('eventos_webhook').where('organizacao_id', f.org).first();
+        assert.equal(event.tentativas, attempt);
+        assert.equal(event.status, attempt < 8 ? 'PENDENTE' : 'REVISAO');
+        assert.ok(new Date(event.disponivel_em).getTime() > now.getTime());
+        assert.ok(new Date(event.disponivel_em).getTime() <= now.getTime() + 300000);
+        assert.equal(event.lease_token, null);
+        assert.equal(event.lease_ate, null);
+    }
+    assert.equal((await connection('pagamentos').where('organizacao_id', f.org)).length, 0);
+    assert.equal(
+        (await connection('transacoes_pagamento').where('organizacao_id', f.org)).length,
+        0,
+    );
+    assert.equal(
+        (await connection('historico_mensalidades').where('mensalidade_id', f.mensalidade)).length,
+        0,
+    );
+    assert.equal(
+        (await connection('contas_receber').where('id', f.conta).first()).status,
+        'PENDENTE',
+    );
+});
+
+test('timeout ao cancelar primeiro débito fora do vencimento preserva intenção para recuperação', async (t) => {
+    const f = await fixture(t);
+    await f.service.criarRecorrencia(f.context, f.assinatura, { metodo: 'CARD' });
+    const subscription = {
+        id: 'subs_qa',
+        checkoutId: [...f.checkouts.values()][0]!.id,
+        customerId: 'cust_qa',
+        externalId: f.assinatura,
+        amount: 10000,
+        currency: 'BRL',
+        status: 'ACTIVE',
+        frequency: 'MONTHLY',
+        method: 'CARD',
+        devMode: true,
+        createdAt: '2026-11-25T12:00:00Z',
+        updatedAt: '2026-11-26T12:00:00Z',
+    };
+    f.subscriptions.set(subscription.id, subscription);
+    f.now = new Date('2026-11-26T12:00:00Z');
+    const cancel = t.mock.method(f.provider, 'cancelSubscription', async () => {
+        throw new AppError(
+            'Cancelamento temporariamente indisponível.',
+            503,
+            'ABACATEPAY_INDISPONIVEL',
+        );
+    });
+    await f.envelope('subscription.completed', 'first-payment-wrong-day', subscription);
+    assert.equal(cancel.mock.callCount(), 1);
+    const event = await connection('eventos_webhook').where('organizacao_id', f.org).first();
+    assert.equal(event.status, 'PENDENTE');
+    assert.equal(event.erro, 'ABACATEPAY_INDISPONIVEL');
+    const recurrence = await connection('recorrencias_pagamento')
+        .where('organizacao_id', f.org)
+        .first();
+    assert.equal(recurrence.status, 'CANCELAMENTO_PENDENTE');
+    assert.equal(recurrence.assinatura_externa_id, subscription.id);
+    assert.equal(recurrence.data_debito, null);
+    assert.equal((await connection('pagamentos').where('organizacao_id', f.org)).length, 0);
+    assert.equal(
+        (await connection('transacoes_pagamento').where('organizacao_id', f.org)).length,
+        0,
+    );
+    cancel.mock.restore();
+    const recovered = await f.service.cancelarRecorrencia(f.context, f.assinatura);
+    assert.equal(recovered.status, 'CANCELADA');
+    assert.equal(
+        (await connection('assinaturas').where('id', f.assinatura).first()).status,
+        'ATIVA',
+    );
+    assert.equal((await connection('pagamentos').where('organizacao_id', f.org)).length, 0);
+    assert.equal(
+        (await connection('historico_mensalidades').where('mensalidade_id', f.mensalidade)).length,
+        0,
     );
 });
