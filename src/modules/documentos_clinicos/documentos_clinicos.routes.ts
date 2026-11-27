@@ -18,6 +18,7 @@ documentosClinicosRoutes.use(
 documentosClinicosRoutes.post('/', documentosClinicosController.criar);
 documentosClinicosRoutes.get('/paciente/:clienteId', documentosClinicosController.listar);
 documentosClinicosRoutes.get('/:documentoId', documentosClinicosController.consultar);
+documentosClinicosRoutes.get('/:documentoId/pdf', documentosClinicosController.pdfLaudo);
 documentosClinicosRoutes.post('/:documentoId/revisoes', documentosClinicosController.revisar);
 documentosClinicosRoutes.post('/:documentoId/finalizar', documentosClinicosController.finalizar);
 
