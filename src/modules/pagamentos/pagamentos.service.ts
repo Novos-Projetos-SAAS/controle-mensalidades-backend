@@ -8,7 +8,7 @@ import {
     dataSaoPaulo,
     deveGerarAutomaticamente,
     expiraCobranca,
-    resolverOrigemPlataforma,
+    resolverOrigemCobranca,
 } from './pagamento.policy.js';
 import { PagamentosConfiguracao } from './pagamentos.configuracao.js';
 import { PagamentosEventos } from './pagamentos.eventos.js';
@@ -143,7 +143,7 @@ export class PagamentosService {
                     409,
                     'INFINITEPAY_DESATIVADA',
                 );
-            const origin = resolverOrigemPlataforma(
+            const origin = resolverOrigemCobranca(
                 config.origem_plataforma ?? undefined,
                 this.deps.origens(),
                 this.deps.ambiente(),

@@ -5,6 +5,7 @@ import {
     deveGerarAutomaticamente,
     expiraCobranca,
     resolverOrigemPlataforma,
+    resolverOrigemCobranca,
 } from '../../../src/modules/pagamentos/pagamento.policy.js';
 
 test('data de São Paulo respeita a virada local em vez da data UTC', () => {
@@ -106,5 +107,52 @@ test('fallback exige única origem confiável e HTTP só funciona em loopback fo
             new Set(['http://app.example']),
             'development',
         ),
+    );
+});
+
+test('origem legada e dominio unico autorizado permitem novo checkout sem alterar regras de entrada', () => {
+    const allowed = new Set(['https://controle-mensalidades-frontend.vercel.app']);
+    assert.equal(
+        resolverOrigemCobranca('http://localhost:3000', allowed, 'production'),
+        'https://controle-mensalidades-frontend.vercel.app',
+    );
+    assert.equal(
+        resolverOrigemCobranca('https://preview-antigo.vercel.app', allowed, 'production'),
+        'https://controle-mensalidades-frontend.vercel.app',
+    );
+    // O cadastro continua exigindo origem exata, sem tolerar valores externos.
+    assert.throws(() => resolverOrigemPlataforma('http://localhost:3000', allowed, 'production'));
+});
+
+test('origem antiga so e recuperada com unica origem valida para o ambiente', () => {
+    const allowed = new Set([
+        'http://localhost:3000',
+        'https://controle-mensalidades-frontend.vercel.app',
+    ]);
+    assert.equal(
+        resolverOrigemCobranca('http://localhost:3000', allowed, 'production'),
+        'https://controle-mensalidades-frontend.vercel.app',
+    );
+    assert.equal(
+        resolverOrigemCobranca('https://controle-mensalidades-frontend.vercel.app', allowed, 'production'),
+        'https://controle-mensalidades-frontend.vercel.app',
+    );
+    assert.throws(() =>
+        resolverOrigemCobranca('https://antigo.example', new Set([
+            'https://app.example.com',
+            'https://preview.example.com',
+        ]), 'production'),
+    );
+    assert.throws(() => resolverOrigemCobranca(null, new Set(), 'production'));
+    assert.throws(() =>
+        resolverOrigemCobranca('http://localhost:3000', new Set(['http://localhost:3000']), 'production'),
+    );
+});
+
+test('origem configurada continua prevalecendo entre varias autorizadas', () => {
+    const allowed = new Set(['https://app.example.com', 'https://preview.example.com']);
+    assert.equal(
+        resolverOrigemCobranca('https://app.example.com', allowed, 'production'),
+        'https://app.example.com',
     );
 });
