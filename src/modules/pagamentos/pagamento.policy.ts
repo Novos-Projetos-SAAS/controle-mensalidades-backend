@@ -72,3 +72,30 @@ export function resolverOrigemPlataforma(
     }
     return origin;
 }
+
+/**
+ * Redirecionamentos de novas cobranças usam a origem salva enquanto ela permanecer
+ * confiável. Se um deploy tornou essa origem obsoleta, só recuperamos quando
+ * existe exatamente uma origem permitida e válida no ambiente atual.
+ * Configurações ambíguas continuam bloqueadas; nunca escolhemos uma origem arbitrária.
+ */
+export function resolverOrigemCobranca(
+    configurada: string | null | undefined,
+    origens: ReadonlySet<string>,
+    ambiente: string,
+): string {
+    const valida = (origem: string): boolean => {
+        try {
+            resolverOrigemPlataforma(origem, origens, ambiente);
+            return true;
+        } catch (error) {
+            if (error instanceof AppError && error.code === 'PAGAMENTO_ORIGEM_INVALIDA')
+                return false;
+            throw error;
+        }
+    };
+    if (configurada && valida(configurada)) return configurada;
+    const validas = [...origens].filter(valida);
+    if (validas.length === 1) return validas[0]!;
+    throw new AppError('Origem da plataforma inválida.', 400, 'PAGAMENTO_ORIGEM_INVALIDA');
+}
