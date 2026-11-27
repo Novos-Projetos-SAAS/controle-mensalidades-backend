@@ -3,6 +3,7 @@ import { rateLimit } from 'express-rate-limit';
 
 import { env } from '../configuration/env.js';
 import AppError from '../shared/errors/AppError.js';
+import { possuiLimiteProprioPagamento } from '../modules/pagamentos/pagamentos.limites.js';
 
 const isDev = env.NODE_ENV === 'development';
 
@@ -18,7 +19,7 @@ export const limitadorGeral = rateLimit({
     standardHeaders: 'draft-8',
     legacyHeaders: false,
     skip: (req) => {
-        if (isDev || req.method === 'OPTIONS') {
+        if (isDev || req.method === 'OPTIONS' || possuiLimiteProprioPagamento(req)) {
             return true;
         }
 

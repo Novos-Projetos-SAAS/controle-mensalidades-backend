@@ -7,10 +7,12 @@ import contextoArea from '../contexto/contextoArea.middleware.js';
 
 import financeiroController from './financeiro.controller.js';
 import indicadoresController from './financeiro.indicadores.js';
+import { pagamentosAdminRoutes } from '../pagamentos/pagamentos.routes.js';
 
 const financeiroRoutes = Router();
 
 financeiroRoutes.use(verifyUser, verifyOrganization, contextoArea, verifyProfile('ADMINISTRADOR'));
+financeiroRoutes.use(pagamentosAdminRoutes);
 
 financeiroRoutes.get('/planos', financeiroController.listarPlanos);
 financeiroRoutes.post('/planos', financeiroController.criarPlano);

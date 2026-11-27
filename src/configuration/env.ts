@@ -27,6 +27,8 @@ const envSchema = z
 
         CORS_ALLOWED_ORIGINS: z.string().optional(),
 
+        INFINITEPAY_ENCRYPTION_KEY: z.string().optional(),
+
         CLINICAL_DB_STATEMENT_TIMEOUT_MS: z.coerce
             .number()
             .int()
