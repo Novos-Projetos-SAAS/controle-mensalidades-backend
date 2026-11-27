@@ -660,7 +660,7 @@ test('sessao e evolucao exigem vinculo ativo e titularidade', async () => {
     const autorizada = await request(appTeste)
         .get(`/sessoes-clinicas/${ids.sessaoA}`)
         .set(headers(ids.userA)).expect(200);
-    assert.equal(autorizada.body.data.procedimentos_realizados, 'Procedimentos ficticios');
+    assert.equal(autorizada.body.data.procedimentos_realizados, 'Treino de marcha e alongamentos sintéticos');
 
     await request(appTeste)
         .get(`/sessoes-clinicas/${ids.sessaoA}`)
