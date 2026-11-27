@@ -7,6 +7,7 @@ import {
     validarNovoDocumentoClinico,
     validarRevisaoDocumentoClinico,
     validarFinalizacaoDocumentoClinico,
+    validarVersaoLaudoPdf,
 } from './documentos_clinicos.validator.js';
 
 function contexto(req: Request) {
@@ -50,6 +51,24 @@ class DocumentosClinicosController {
             );
             return res.status(200).json({ data: documento });
         } catch (error) { next(error); }
+    }
+
+    async pdfLaudo(req: Request, res: Response, next: NextFunction) {
+        try {
+            const pdf = await documentosClinicosService.emitirPdfLaudo(
+                contexto(req), validarDocumentoClinicoId(req.params.documentoId),
+                validarVersaoLaudoPdf(req.query), meta(req),
+            );
+            res.status(200).set({
+                'Content-Type': 'application/pdf',
+                'Content-Disposition': 'attachment; filename="laudo-fisioterapeutico.pdf"',
+                'Content-Length': String(pdf.length),
+                'Cache-Control': 'private, no-store, max-age=0',
+                'Pragma': 'no-cache',
+                'X-Content-Type-Options': 'nosniff',
+            });
+            return res.end(pdf);
+        } catch (error) { return next(error); }
     }
 
     async revisar(req: Request, res: Response, next: NextFunction) {
