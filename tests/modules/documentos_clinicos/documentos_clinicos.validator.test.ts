@@ -6,6 +6,7 @@ import {
     validarFinalizacaoDocumentoClinico,
     validarDocumentoClinicoId,
     validarConteudoParaTipo,
+    validarVersaoLaudoPdf,
 } from '../../../src/modules/documentos_clinicos/documentos_clinicos.validator.js';
 
 const clienteId = 'c38fae7f-7c1a-40e3-8d88-82754ce6f4db';
@@ -74,4 +75,20 @@ test('revisão exige expectativa de versão, justificativa e natureza adequada',
     }));
     assert.throws(() => validarConteudoParaTipo('LAUDO', anamnese));
     assert.equal(validarFinalizacaoDocumentoClinico({ ultima_versao_esperada: 2 }).ultima_versao_esperada, 2);
+});
+
+test('PDF aceita versão positiva ou padrão e rejeita parâmetros arbitrários', () => {
+    assert.equal(validarVersaoLaudoPdf({}), undefined);
+    assert.equal(validarVersaoLaudoPdf({ versao: '1' }), 1);
+    assert.equal(validarVersaoLaudoPdf({ versao: '123' }), 123);
+    for (const item of [
+        { versao: '0' },
+        { versao: '-1' },
+        { versao: 'x' },
+        { versao: ['1', '2'] },
+        { versao: '1000000' },
+        { versao: '1', paciente_id: 'outro' },
+    ]) {
+        assert.throws(() => validarVersaoLaudoPdf(item));
+    }
 });
