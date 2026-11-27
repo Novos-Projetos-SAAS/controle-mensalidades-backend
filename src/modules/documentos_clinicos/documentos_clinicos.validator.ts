@@ -72,6 +72,13 @@ export function validarFinalizacaoDocumentoClinico(valor: unknown): FinalizarDoc
     return validar(finalizar, valor);
 }
 
+export function validarVersaoLaudoPdf(valor: unknown): number | undefined {
+    const schema = z.object({
+        versao: z.string().regex(/^[1-9][0-9]{0,5}$/).transform(Number).optional(),
+    }).strict();
+    return validar(schema, valor).versao;
+}
+
 export function validarDocumentoClinicoId(valor: unknown): string {
     return validar(uuid, valor);
 }
