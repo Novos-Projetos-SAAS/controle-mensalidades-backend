@@ -73,6 +73,8 @@ appTeste.get('/prontuario/identidade', pacientesVinculadosController.identidade)
 appTeste.get('/prontuario/pacientes', pacientesVinculadosController.listar);
 appTeste.get('/prontuario/pacientes/:pacienteId/historico', timelineController.listar);
 appTeste.get('/sessoes-clinicas/:sessaoClinicaId', sessoesController.buscarPorId);
+appTeste.get('/sessoes-clinicas/:sessaoClinicaId/historico', sessoesController.listarHistoricoCorrecoes);
+appTeste.patch('/sessoes-clinicas/:sessaoClinicaId', sessoesController.corrigir);
 appTeste.post('/sessoes-clinicas', sessoesController.criar);
 appTeste.post('/vinculos-clinicos', vinculosController.conceder);
 appTeste.get('/vinculos-clinicos/paciente/:clienteId', vinculosController.listar);
@@ -612,6 +614,46 @@ test('linha do tempo valida o limite e nao permite enumeracao sem autenticacao',
         .get('/prontuario/pacientes/nao-e-uuid/historico')
         .set(headers(ids.userA))
         .expect(400);
+});
+
+test('corrige evolução em HTTP real, preserva o antes/depois e bloqueia profissional alheio', async () => {
+    const alteracao = await request(appTeste)
+        .patch(`/sessoes-clinicas/${ids.sessaoA}`)
+        .set(headers(ids.userA))
+        .send({
+            evolucao: 'Evolucao sintética corrigida',
+            procedimentos_realizados: 'Treino de marcha e alongamentos sintéticos',
+        }).expect(200);
+    assert.equal(alteracao.body.data.evolucao, 'Evolucao sintética corrigida');
+
+    const detalhe = await request(appTeste)
+        .get(`/sessoes-clinicas/${ids.sessaoA}`)
+        .set(headers(ids.userA)).expect(200);
+    assert.equal(detalhe.body.data.procedimentos_realizados, 'Treino de marcha e alongamentos sintéticos');
+    assert.equal(new Date(detalhe.body.data.data_sessao).toISOString(), '2026-11-18T14:00:00.000Z');
+
+    const historico = await request(appTeste)
+        .get(`/sessoes-clinicas/${ids.sessaoA}/historico`)
+        .set(headers(ids.userA)).expect(200);
+    assert.equal(historico.body.data.length, 1);
+    const revisao = historico.body.data[0];
+    assert.ok(revisao.campos_alterados.includes('evolucao'));
+    assert.ok(revisao.campos_alterados.includes('procedimentos_realizados'));
+    assert.equal(revisao.dados_anteriores.evolucao, 'Evolucao ficticia sigilosa do titular');
+    assert.equal(revisao.dados_novos.evolucao, 'Evolucao sintética corrigida');
+
+    await request(appTeste)
+        .patch(`/sessoes-clinicas/${ids.sessaoA}`)
+        .set(headers(ids.userB))
+        .send({ evolucao: 'Tentativa de correcao de outro titular' }).expect(404);
+    await request(appTeste)
+        .get(`/sessoes-clinicas/${ids.sessaoA}/historico`)
+        .set(headers(ids.userB)).expect(404);
+    const auditoria = await connection('registros_auditoria').where({
+        recurso_id: ids.sessaoA,
+        usuario_id: ids.userA,
+    }).where('acao', 'SESSAO_CLINICA.CORRIGIDA').first('id');
+    assert.ok(auditoria);
 });
 
 test('sessao e evolucao exigem vinculo ativo e titularidade', async () => {
