@@ -70,11 +70,11 @@ Para conferir na interface: abra uma mensalidade pendente com link, registre rec
 
 ## Resultado da validação desta alteração
 
-- Branch nos dois repositórios: `codex/webhooks-manual-settlement`, criada a partir da `main` local. HEAD e stage preservados; sem commit, push, merge ou deploy.
+- Branch nos dois repositórios: `codex/webhooks-manual-settlement`, atualizada com `origin/main`. Os commits da funcionalidade ficam nessa branch para revisão; o merge na `main` cabe ao proprietário. Nenhum deploy foi executado.
 - Backend: typecheck de aplicação e testes, ESLint e build aprovados. Dez arquivos de testes executados explicitamente: **125 passaram, nenhum ignorado**. Incluem adaptadores InfinitePay/AbacatePay, dados de checkout, políticas, situação financeira, worker, integrações com PostgreSQL e rotas financeiras/AbacatePay.
-- Frontend: typecheck, build e ESLint aprovados. ESLint continua com quatro avisos preexistentes em dois testes clínicos não alterados. **178 testes Vitest passaram em 33 arquivos**.
+- Frontend: typecheck, build e ESLint aprovados. ESLint continua com quatro avisos preexistentes em dois testes clínicos não alterados. **183 testes Vitest passaram em 34 arquivos**, após incorporar a aba de mensalidades dos clientes já presente na `main`.
 - Playwright com APIs interceptadas: **6 cenários passaram**, incluindo quitação manual com clique duplo, nenhuma consulta externa obrigatória, saldo zero e página privada sem novo pagamento nas larguras de 1440 e 375 pixels. Inspeção visual do cenário mobile sem overflow.
 - Regressores incluem ambas as ordens da corrida manual/webhook, recebimento parcial, chave reutilizada com conteúdo diferente, entrega paralela, transação já aplicada, lease expirado/substituído, retomada depois da baixa, oito tentativas com espera progressiva, indisponibilidade de provedor e cancelamento com timeout.
-- Arquivos `.env*`, migrations, `next-env.d.ts`, `tsconfig.json`, HEAD e stage foram comparados com o estado inicial. Nenhum arquivo protegido foi alterado. Arquivos gerados pelo build foram restaurados ao conteúdo inicial.
+- Arquivos privados de ambiente e migrations foram preservados. A atualização com `origin/main` incorpora o nome `ENCRYPTION_KEY` sem alterar a chave de criptografia. Arquivos gerados pelo build foram restaurados ao conteúdo anterior.
 
 Não executados: `financeiro.rotina.test.ts` (cria schema e chama `migrate.latest`), `abacatepay.migration.test.ts` (chama migration mesmo com mock), `clinical_history_migration.test.ts` (cria schema e chama migrations) e E2E completo com fixtures de banco. A suite financeira foi executada explicitamente no banco QA previamente existente; não houve `npm test` genérico no backend. Esta validação não homologa APIs externas reais nem comprova o índice com ambiente no schema QA legado.
