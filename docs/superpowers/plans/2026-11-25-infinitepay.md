@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Work in the existing clean `codex/infinitepay-integration` checkouts; preserve historical migrations and sources/.
-- Only new environment variable: `INFINITEPAY_ENCRYPTION_KEY` (canonical Base64, 32 bytes).
+- Only new environment variable: `ENCRYPTION_KEY` (canonical Base64, 32 bytes).
 - Configuration in the database: enabled, automatic generation, advance days (1 or 2), InfiniteTag, encrypted/versioned account credential, trusted platform origin.
 - No backend URL or frontend return URL fields. Use existing CORS allowlist and proxy-supplied platform origin. Return path is `/pagamento/retorno`; webhook path on the platform is `/api/v1/pagamentos/webhook/infinitepay`.
 - User has no client authentication today. Default MVP is a private per-charge payment page `/pagamento/:token`, no public lookup by customer ID or CPF. Tokens are random, hashed for lookup and encrypted for administrative recovery; no clinical/customer details are exposed.

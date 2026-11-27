@@ -13,14 +13,14 @@ import { AbacatePayService } from './abacatepay/abacatepay.service.js';
 
 export const pagamentosService = new PagamentosService({
     db: connection,
-    key: () => env.INFINITEPAY_ENCRYPTION_KEY,
+    key: () => env.ENCRYPTION_KEY,
     origens: () => resolverOrigensCors(env.CORS_ALLOWED_ORIGINS, env.NODE_ENV),
     ambiente: () => env.NODE_ENV,
 });
 
 export const abacatePayService = new AbacatePayService({
     db: connection,
-    key: () => env.INFINITEPAY_ENCRYPTION_KEY,
+    key: () => env.ENCRYPTION_KEY,
     origens: () => resolverOrigensCors(env.CORS_ALLOWED_ORIGINS, env.NODE_ENV),
     ambiente: () => env.NODE_ENV,
 });

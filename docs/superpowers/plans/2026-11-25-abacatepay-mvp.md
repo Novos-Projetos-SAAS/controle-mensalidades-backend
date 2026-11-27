@@ -8,7 +8,7 @@
 **Spec:** pedido do usuário de 25/11/2026, seções1..12; documentação oficial docs.abacatepay.com/pages.
 
 ## Restrições e decisões
-- Histórico e migrations1..67 imutáveis; credenciais AES256GCM com AAD organização/provedor/ambiente. Reutilizar INFINITEPAY_ENCRYPTION_KEY com escopos separados.
+- Histórico e migrations1..67 imutáveis; credenciais AES256GCM com AAD organização/provedor/ambiente. Reutilizar ENCRYPTION_KEY com escopos separados.
 - Browser envia somente provedor/método, nunca valor/nome/contato como autoridade. Compartilhar apenas email/nome/telefone válidos; checkout hospedado coleta campos obrigatórios faltantes.
 - Nenhum POST financeiro repetido cegamente após timeout; persistir intenção antes de HTTP e reconciliar por externalId. IDs bill_ e subs_ distintos.
 - Mesma transação externa só produz um recebimento; eventos fora de ordem não reabrem cancelamento. Divergências ficam em revisão.
