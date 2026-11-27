@@ -15,8 +15,11 @@ Uma cobrança possui uma página privada individual em `/pagamento/:token`. A p�
 Há somente uma nova variável de ambiente no backend:
 
 ```dotenv
-INFINITEPAY_ENCRYPTION_KEY=<32 bytes aleatórios em Base64 canônico>
+ENCRYPTION_KEY=<32 bytes aleatórios em Base64 canônico>
 ```
+
+Ao atualizar uma instalação existente, renomeie a variável para `ENCRYPTION_KEY` mantendo exatamente o valor anterior. Não gere outra chave: as credenciais já salvas dependem da chave existente.
+
 
 Uma chave pode ser gerada localmente, sem serviços externos:
 

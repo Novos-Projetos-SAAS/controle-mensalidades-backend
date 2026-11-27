@@ -57,3 +57,11 @@ test('deve rejeitar lock timeout maior ou igual ao statement timeout', () => {
 test('deve rejeitar DB_SSL fora de true ou false', () => {
     assert.throws(() => validarEnv({ DB_SSL: 'maybe' }));
 });
+
+test('deve preservar ENCRYPTION_KEY para as integrações de pagamento', () => {
+    const chave = Buffer.alloc(32, 7).toString('base64');
+    const resultado = validarEnv({ ENCRYPTION_KEY: chave });
+
+    assert.equal(resultado.ENCRYPTION_KEY, chave);
+    assert.equal(validarEnv({}).ENCRYPTION_KEY, undefined);
+});

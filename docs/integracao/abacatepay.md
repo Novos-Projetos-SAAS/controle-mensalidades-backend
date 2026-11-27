@@ -9,7 +9,7 @@ Implementados configuração por organização, checkout hospedado avulso, ades�
 ## Configuração local
 
 1. Aplique migrations **068** e **069**, após as migrations existentes. Não altere nem renomeie a 067.
-2. Configure no backend a chave de criptografia já utilizada pela InfinitePay: `INFINITEPAY_ENCRYPTION_KEY`. Não substitua uma chave existente: isso tornaria as credenciais antigas ilegíveis. A AbacatePay usa escopos separados por organização/provedor/ambiente.
+2. Configure no backend a chave de criptografia já utilizada pela InfinitePay: `ENCRYPTION_KEY`. Não substitua uma chave existente: isso tornaria as credenciais antigas ilegíveis. A AbacatePay usa escopos separados por organização/provedor/ambiente.
 3. No Financeiro, abra **Integrações de pagamento**. Configure uma chave `abc_dev_...` e um segredo de webhook com pelo menos 32 caracteres. Os campos ficam vazios após salvar; somente indicadores de configuração são retornados.
 4. Ative a conta no ambiente Teste. Selecione o provedor padrão. Isso afeta somente novas cobranças; cobranças existentes preservam o provedor e a credencial de origem.
 5. Para recorrência, habilite **Oferecer pagamento automático** e cartão. Cada contrato precisa de adesão individual.
