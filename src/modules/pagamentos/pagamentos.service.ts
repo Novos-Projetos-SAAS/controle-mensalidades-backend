@@ -87,6 +87,11 @@ export class PagamentosService {
                     409,
                     'COBRANCA_SEM_SALDO',
                 );
+            const monthly = await trx('mensalidades').where({id:mensalidadeId,organizacao_id:contexto.organizacaoId}).select('assinatura_id').first();
+            const recurring = await trx('recorrencias_pagamento').where({assinatura_id:monthly.assinatura_id,organizacao_id:contexto.organizacaoId}).whereNot('status','CANCELADA').first();
+            if (recurring) throw new AppError('Esta mensalidade está vinculada a pagamento automático. Confira a recorrência antes de gerar uma cobrança avulsa.',409,'RECORRENCIA_EM_ANDAMENTO');
+            const other = await trx('cobrancas_pagamento').where({conta_receber_id:conta.conta_receber_id,organizacao_id:contexto.organizacaoId}).whereNot('provedor','INFINITEPAY').whereIn('status',ativas).first();
+            if (other) throw new AppError('Já existe uma cobrança em andamento em outra conta de pagamento.',409,'COBRANCA_EM_ANDAMENTO');
             await trx('cobrancas_pagamento')
                 .where({ conta_receber_id: conta.conta_receber_id, provedor: 'INFINITEPAY' })
                 .whereIn(
@@ -300,6 +305,7 @@ export class PagamentosService {
             conta.status_conta === 'PENDENTE' &&
             saldo >= converterValorCentavos(charge.valor);
         return {
+            provedor: 'INFINITEPAY',
             status,
             valor: charge.valor,
             vencimento_em: data(conta.vencimento_em),
@@ -391,6 +397,8 @@ export class PagamentosService {
                 'a.ativo': true,
             })
             .whereNull('cr.cancelado_em')
+            .whereNotExists(db('integracoes_pagamento as padrao').select(db.raw('1')).whereRaw('padrao.organizacao_id = m.organizacao_id').where({'padrao.provedor':'ABACATEPAY','padrao.padrao':true}))
+            .whereNotExists(db('recorrencias_pagamento as rp').select(db.raw('1')).whereRaw('rp.assinatura_id = m.assinatura_id AND rp.organizacao_id = m.organizacao_id').whereNot('rp.status','CANCELADA'))
             .whereRaw(
                 'cr.organizacao_id = m.organizacao_id AND a.organizacao_id = m.organizacao_id AND cr.area_negocio_id = m.area_negocio_id',
             )

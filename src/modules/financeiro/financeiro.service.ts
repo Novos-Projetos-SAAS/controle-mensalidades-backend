@@ -108,13 +108,143 @@ function mesmoConteudoIdempotente(
     );
 }
 
+export async function gerarMensalidadeTransacional(
+    transaction: Knex.Transaction,
+    contexto: ContextoFinanceiro,
+    assinaturaId: string,
+    dados: GerarMensalidadeInput,
+) {
+    const assinatura = await transaction('assinaturas')
+        .select(
+            'id',
+            'cliente_id',
+            'valor_contratado',
+            'desconto_recorrente',
+            'dia_vencimento',
+            'inicio_em',
+            'fim_em',
+            'status',
+        )
+        .where('id', assinaturaId)
+        .andWhere('organizacao_id', contexto.organizacaoId)
+        .andWhere('area_negocio_id', contexto.areaNegocioId)
+        .forUpdate()
+        .first();
+
+    if (!assinatura) {
+        throw falha(404, 'ASSINATURA_NAO_ENCONTRADA', 'Assinatura não encontrada nesta área.');
+    }
+
+    if (assinatura.status !== 'ATIVA') {
+        throw falha(409, 'ASSINATURA_INATIVA', 'Somente assinaturas ativas geram mensalidades.');
+    }
+
+    const competenciaMes = dados.competencia.slice(0, 7);
+    const inicioMes = dataIso(assinatura.inicio_em as Date | string).slice(0, 7);
+    const fimMes = assinatura.fim_em
+        ? dataIso(assinatura.fim_em as Date | string).slice(0, 7)
+        : null;
+    if (competenciaMes < inicioMes || (fimMes && competenciaMes > fimMes)) {
+        throw falha(
+            409,
+            'COMPETENCIA_FORA_DA_ASSINATURA',
+            'A competência está fora do período da assinatura.',
+        );
+    }
+
+    const existente = await transaction('mensalidades')
+        .select('id')
+        .where('assinatura_id', assinaturaId)
+        .andWhere('competencia', dados.competencia)
+        .first();
+
+    if (existente) return { mensalidadeId: existente.id, criada: false };
+
+    const valorBase = converterValorCentavos(String(assinatura.valor_contratado));
+    const desconto = converterValorCentavos(String(assinatura.desconto_recorrente));
+    const valorFinal = valorBase - desconto;
+    if (valorFinal <= 0n) {
+        throw falha(
+            409,
+            'VALOR_MENSALIDADE_INVALIDO',
+            'O valor final da mensalidade deve ser maior que zero.',
+        );
+    }
+
+    const mensalidadeId = randomUUID();
+    const contaReceberId = randomUUID();
+    const vencimento = dataVencimento(dados.competencia, Number(assinatura.dia_vencimento));
+
+    await transaction('contas_receber').insert({
+        id: contaReceberId,
+        organizacao_id: contexto.organizacaoId,
+        area_negocio_id: contexto.areaNegocioId,
+        cliente_id: assinatura.cliente_id,
+        origem_tipo: 'MENSALIDADE',
+        origem_id: mensalidadeId,
+        descricao: `Mensalidade ${competenciaMes}`,
+        valor_original: formatarCentavos(valorBase),
+        desconto: formatarCentavos(desconto),
+        acrescimo: '0.00',
+        valor_final: formatarCentavos(valorFinal),
+        vencimento_em: vencimento,
+        status: 'PENDENTE',
+    });
+
+    await transaction('mensalidades').insert({
+        id: mensalidadeId,
+        organizacao_id: contexto.organizacaoId,
+        area_negocio_id: contexto.areaNegocioId,
+        assinatura_id: assinaturaId,
+        conta_receber_id: contaReceberId,
+        competencia: dados.competencia,
+        valor_base: formatarCentavos(valorBase),
+        desconto_recorrente: formatarCentavos(desconto),
+        ajuste_competencia: '0.00',
+        valor_final: formatarCentavos(valorFinal),
+        vencimento_em: vencimento,
+    });
+
+    await transaction('historico_mensalidades').insert({
+        mensalidade_id: mensalidadeId,
+        usuario_id: contexto.usuarioId,
+        tipo_evento: 'MENSALIDADE_GERADA',
+        dados_novos: {
+            competencia: competenciaMes,
+            valor_base: formatarCentavos(valorBase),
+            desconto: formatarCentavos(desconto),
+            valor_final: formatarCentavos(valorFinal),
+            vencimento_em: vencimento,
+        },
+    });
+
+    await registrarAuditoria(
+        transaction,
+        contexto,
+        'FINANCEIRO.MENSALIDADE_GERADA',
+        'MENSALIDADE',
+        mensalidadeId,
+        {
+            competencia: competenciaMes,
+            valor_final: formatarCentavos(valorFinal),
+            vencimento_em: vencimento,
+        },
+    );
+
+    return { mensalidadeId, criada: true };
+}
+
 export async function registrarRecebimentoTransacional(
     transaction: Knex.Transaction,
     contexto: ContextoFinanceiro,
     mensalidadeId: string,
     chaveIdempotencia: string,
     dados: ReceberMensalidadeInput,
-    externo?: { cobrancaId: string; transactionNsu: string },
+    externo?: {
+        cobrancaId: string;
+        transactionNsu: string;
+        provedor?: 'INFINITEPAY' | 'ABACATEPAY';
+    },
 ) {
     const valorPagamento = converterValorCentavos(dados.valor);
     if (valorPagamento <= 0n) {
@@ -160,7 +290,7 @@ export async function registrarRecebimentoTransacional(
         if (
             !mesmoConteudoIdempotente(existente, mensalidade.conta_receber_id, dados) ||
             (externo &&
-                (existente.origem !== 'INFINITEPAY' ||
+                (existente.origem !== (externo.provedor ?? 'INFINITEPAY') ||
                     existente.identificador_externo !== externo.transactionNsu ||
                     existente.cobranca_pagamento_id !== externo.cobrancaId))
         ) {
@@ -213,7 +343,7 @@ export async function registrarRecebimentoTransacional(
             cobranca_pagamento_id: externo?.cobrancaId ?? null,
             valor: formatarCentavos(valorPagamento),
             forma_pagamento: dados.forma_pagamento,
-            origem: externo ? 'INFINITEPAY' : 'MANUAL',
+            origem: externo ? (externo.provedor ?? 'INFINITEPAY') : 'MANUAL',
             identificador_externo: externo?.transactionNsu ?? null,
             chave_idempotencia: chaveIdempotencia,
             pago_em: dados.pago_em,
@@ -253,7 +383,11 @@ export async function registrarRecebimentoTransacional(
 
         if (
             !concorrente ||
-            !mesmoConteudoIdempotente(concorrente, mensalidade.conta_receber_id, dados)
+            !mesmoConteudoIdempotente(concorrente, mensalidade.conta_receber_id, dados) ||
+            (externo &&
+                (concorrente.origem !== (externo.provedor ?? 'INFINITEPAY') ||
+                    concorrente.identificador_externo !== externo.transactionNsu ||
+                    concorrente.cobranca_pagamento_id !== externo.cobrancaId))
         ) {
             throw falha(
                 409,
@@ -507,134 +641,9 @@ class FinanceiroService {
         assinaturaId: string,
         dados: GerarMensalidadeInput,
     ) {
-        const resultado = await connection.transaction(async (transaction) => {
-            const assinatura = await transaction('assinaturas')
-                .select(
-                    'id',
-                    'cliente_id',
-                    'valor_contratado',
-                    'desconto_recorrente',
-                    'dia_vencimento',
-                    'inicio_em',
-                    'fim_em',
-                    'status',
-                )
-                .where('id', assinaturaId)
-                .andWhere('organizacao_id', contexto.organizacaoId)
-                .andWhere('area_negocio_id', contexto.areaNegocioId)
-                .forUpdate()
-                .first();
-
-            if (!assinatura) {
-                throw falha(
-                    404,
-                    'ASSINATURA_NAO_ENCONTRADA',
-                    'Assinatura não encontrada nesta área.',
-                );
-            }
-
-            if (assinatura.status !== 'ATIVA') {
-                throw falha(
-                    409,
-                    'ASSINATURA_INATIVA',
-                    'Somente assinaturas ativas geram mensalidades.',
-                );
-            }
-
-            const competenciaMes = dados.competencia.slice(0, 7);
-            const inicioMes = dataIso(assinatura.inicio_em as Date | string).slice(0, 7);
-            const fimMes = assinatura.fim_em
-                ? dataIso(assinatura.fim_em as Date | string).slice(0, 7)
-                : null;
-            if (competenciaMes < inicioMes || (fimMes && competenciaMes > fimMes)) {
-                throw falha(
-                    409,
-                    'COMPETENCIA_FORA_DA_ASSINATURA',
-                    'A competência está fora do período da assinatura.',
-                );
-            }
-
-            const existente = await transaction('mensalidades')
-                .select('id')
-                .where('assinatura_id', assinaturaId)
-                .andWhere('competencia', dados.competencia)
-                .first();
-
-            if (existente) return { mensalidadeId: existente.id, criada: false };
-
-            const valorBase = converterValorCentavos(String(assinatura.valor_contratado));
-            const desconto = converterValorCentavos(String(assinatura.desconto_recorrente));
-            const valorFinal = valorBase - desconto;
-            if (valorFinal <= 0n) {
-                throw falha(
-                    409,
-                    'VALOR_MENSALIDADE_INVALIDO',
-                    'O valor final da mensalidade deve ser maior que zero.',
-                );
-            }
-
-            const mensalidadeId = randomUUID();
-            const contaReceberId = randomUUID();
-            const vencimento = dataVencimento(dados.competencia, Number(assinatura.dia_vencimento));
-
-            await transaction('contas_receber').insert({
-                id: contaReceberId,
-                organizacao_id: contexto.organizacaoId,
-                area_negocio_id: contexto.areaNegocioId,
-                cliente_id: assinatura.cliente_id,
-                origem_tipo: 'MENSALIDADE',
-                origem_id: mensalidadeId,
-                descricao: `Mensalidade ${competenciaMes}`,
-                valor_original: formatarCentavos(valorBase),
-                desconto: formatarCentavos(desconto),
-                acrescimo: '0.00',
-                valor_final: formatarCentavos(valorFinal),
-                vencimento_em: vencimento,
-                status: 'PENDENTE',
-            });
-
-            await transaction('mensalidades').insert({
-                id: mensalidadeId,
-                organizacao_id: contexto.organizacaoId,
-                area_negocio_id: contexto.areaNegocioId,
-                assinatura_id: assinaturaId,
-                conta_receber_id: contaReceberId,
-                competencia: dados.competencia,
-                valor_base: formatarCentavos(valorBase),
-                desconto_recorrente: formatarCentavos(desconto),
-                ajuste_competencia: '0.00',
-                valor_final: formatarCentavos(valorFinal),
-                vencimento_em: vencimento,
-            });
-
-            await transaction('historico_mensalidades').insert({
-                mensalidade_id: mensalidadeId,
-                usuario_id: contexto.usuarioId,
-                tipo_evento: 'MENSALIDADE_GERADA',
-                dados_novos: {
-                    competencia: competenciaMes,
-                    valor_base: formatarCentavos(valorBase),
-                    desconto: formatarCentavos(desconto),
-                    valor_final: formatarCentavos(valorFinal),
-                    vencimento_em: vencimento,
-                },
-            });
-
-            await registrarAuditoria(
-                transaction,
-                contexto,
-                'FINANCEIRO.MENSALIDADE_GERADA',
-                'MENSALIDADE',
-                mensalidadeId,
-                {
-                    competencia: competenciaMes,
-                    valor_final: formatarCentavos(valorFinal),
-                    vencimento_em: vencimento,
-                },
-            );
-
-            return { mensalidadeId, criada: true };
-        });
+        const resultado = await connection.transaction((transaction) =>
+            gerarMensalidadeTransacional(transaction, contexto, assinaturaId, dados),
+        );
 
         const mensalidade = await financeiroRepository.buscarMensalidade(
             contexto.organizacaoId,

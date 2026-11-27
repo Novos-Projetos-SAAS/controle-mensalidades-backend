@@ -1,5 +1,5 @@
 import { env } from '../../configuration/env.js';
-import { pagamentosService } from './pagamentos.routes.js';
+import { abacatePayService, pagamentosService } from './pagamentos.routes.js';
 
 let timer: ReturnType<typeof setInterval> | undefined;
 let running: Promise<void> | undefined;
@@ -10,8 +10,9 @@ export function iniciarRotinaPagamentos() {
     stopping = false;
     const tick = () => {
         if (running || stopping) return;
-        running = pagamentosService
+        running = abacatePayService
             .executarCiclo()
+            .then(() => pagamentosService.executarCiclo())
             .catch((error: unknown) => {
                 // Do not include SQL, bindings, request URLs or provider bodies in job logs.
                 const code =
