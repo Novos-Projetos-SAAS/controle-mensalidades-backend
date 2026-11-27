@@ -21,6 +21,7 @@ test('rotas de anamnese e laudo nao estao publicadas na API', async () => {
         request(app).post('/api/v1/documentos-clinicos').send({}),
         request(app).get('/api/v1/documentos-clinicos/paciente/00000000-0000-4000-8000-000000000001'),
         request(app).get('/api/v1/documentos-clinicos/00000000-0000-4000-8000-000000000001'),
+        request(app).get('/api/v1/documentos-clinicos/00000000-0000-4000-8000-000000000001/pdf?versao=1'),
         request(app).post('/api/v1/documentos-clinicos/00000000-0000-4000-8000-000000000001/revisoes').send({}),
         request(app).post('/api/v1/documentos-clinicos/00000000-0000-4000-8000-000000000001/finalizar').send({}),
     ];
