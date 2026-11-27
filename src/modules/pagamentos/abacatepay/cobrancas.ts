@@ -5,7 +5,7 @@ import AppError from '../../../shared/errors/AppError.js';
 import { registrarRecebimentoTransacional } from '../../financeiro/financeiro.service.js';
 import { converterValorCentavos, formatarCentavos } from '../../financeiro/financeiro.validator.js';
 import { cifrarSegredo, decifrarSegredo } from '../credenciais.js';
-import { expiraCobranca, resolverOrigemPlataforma } from '../pagamento.policy.js';
+import { expiraCobranca, resolverOrigemCobranca } from '../pagamento.policy.js';
 import { PagamentosRepository, type Cobranca } from '../pagamentos.repository.js';
 import {
     ativas,
@@ -96,7 +96,7 @@ export class CobrancasAbacatePay {
                 );
             if (saldo < 100n || saldo > BigInt(Number.MAX_SAFE_INTEGER))
                 throw falha('A cobrança exige valor mínimo de R$ 1,00.');
-            const origin = resolverOrigemPlataforma(
+            const origin = resolverOrigemCobranca(
                 config.origem_plataforma ?? undefined,
                 this.d.origens(),
                 this.d.ambiente(),
