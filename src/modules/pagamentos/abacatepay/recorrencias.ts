@@ -5,7 +5,7 @@ import type { Knex } from 'knex';
 import AppError from '../../../shared/errors/AppError.js';
 import { gerarMensalidadeTransacional } from '../../financeiro/financeiro.service.js';
 import { converterValorCentavos } from '../../financeiro/financeiro.validator.js';
-import { dataSaoPaulo, resolverOrigemPlataforma } from '../pagamento.policy.js';
+import { dataSaoPaulo, resolverOrigemCobranca } from '../pagamento.policy.js';
 import {
     ativas,
     auditoria,
@@ -211,7 +211,7 @@ export class RecorrenciasAbacatePay {
                 Number(converterValorCentavos(r.valor)),
                 true,
             );
-            const origin = resolverOrigemPlataforma(
+            const origin = resolverOrigemCobranca(
                 cfg.origem_plataforma ?? undefined,
                 this.d.origens(),
                 this.d.ambiente(),
