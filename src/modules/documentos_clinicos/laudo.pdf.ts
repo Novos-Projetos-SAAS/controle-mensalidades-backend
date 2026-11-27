@@ -109,7 +109,10 @@ export function gerarLaudoPdf(dados: DadosLaudoParaPdf): Buffer {
     function novaPagina() {
         pagina = [];
         pags.push(pagina);
-        txt(dados.clinica, margem, 793, 12, true, '0.11 0.30 0.35');
+        const nomeCabecalho = dados.clinica.length > 65
+            ? dados.clinica.slice(0, 62) + '...'
+            : dados.clinica;
+        txt(nomeCabecalho, margem, 793, 12, true, '0.11 0.30 0.35');
         txt('LAUDO FISIOTERAPÊUTICO', margem, 762, 17, true);
         linha(margem, 747, largura - margem, 747, '0.11 0.47 0.49');
         y = 727;
@@ -135,6 +138,7 @@ export function gerarLaudoPdf(dados: DadosLaudoParaPdf): Buffer {
     }
 
     novaPagina();
+    textoCorrente('Clínica: ' + dados.clinica, margem, 10, 15, true);
     textoCorrente('Paciente: ' + dados.paciente, margem, 10, 15, true);
     textoCorrente('Fisioterapeuta: ' + dados.profissional, margem, 10, 15, true);
     const registro = [dados.conselho?.trim(), dados.numeroConselho?.trim(), dados.ufConselho?.trim()]
