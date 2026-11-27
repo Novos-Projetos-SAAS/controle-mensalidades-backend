@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import AppError from '../../shared/errors/AppError.js';
 import linhaTempoClinicaService from './prontuario.timeline.service.js';
-import { validarHistoricoPacienteId, validarLimiteHistorico } from './prontuario.timeline.validator.js';
+import { validarHistoricoPacienteId, validarPaginacaoHistorico } from './prontuario.timeline.validator.js';
 
 class ProntuarioTimelineController {
     async listar(req: Request, res: Response, next: NextFunction) {
@@ -14,6 +14,7 @@ class ProntuarioTimelineController {
                 );
             }
 
+            const { limite, deslocamento } = validarPaginacaoHistorico(req.query);
             const dados = await linhaTempoClinicaService.listar(
                 {
                     usuarioId: req.auth.usuarioId,
@@ -21,8 +22,9 @@ class ProntuarioTimelineController {
                     areaNegocioId: req.auth.areaNegocioId,
                 },
                 validarHistoricoPacienteId(req.params.pacienteId),
-                validarLimiteHistorico(req.query),
+                limite,
                 req.requestId,
+                deslocamento,
             );
             return res.status(200).json({ data: dados });
         } catch (error) {
