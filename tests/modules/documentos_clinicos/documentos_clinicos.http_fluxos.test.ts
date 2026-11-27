@@ -66,6 +66,7 @@ appTeste.use(requestId, express.json(), cookieParser(), verifyUser, verifyOrgani
 appTeste.post('/documentos-clinicos', controller.criar);
 appTeste.get('/documentos-clinicos/paciente/:clienteId', controller.listar);
 appTeste.get('/documentos-clinicos/:documentoId', controller.consultar);
+appTeste.get('/documentos-clinicos/:documentoId/pdf', controller.pdfLaudo);
 appTeste.post('/documentos-clinicos/:documentoId/revisoes', controller.revisar);
 appTeste.post('/documentos-clinicos/:documentoId/finalizar', controller.finalizar);
 appTeste.get('/prontuario/identidade', pacientesVinculadosController.identidade);
@@ -474,6 +475,52 @@ test('laudo eh guardado separadamente, sem assinatura automatica', async () => {
     assert.equal(leitura.body.data.versoes[0].conteudo.conclusao, laudo.conclusao);
 });
 
+test('PDF de laudo exige titularidade, versões válidas e retorna headers de privacidade', async () => {
+    await request(appTeste).get('/documentos-clinicos/' + laudoId + '/pdf')
+        .expect(401);
+
+    const autorizado = await request(appTeste)
+        .get('/documentos-clinicos/' + laudoId + '/pdf?versao=1')
+        .set(headers(ids.userA)).expect(200);
+    assert.match(autorizado.headers['content-type'] as string, /application\/pdf/);
+    assert.match(autorizado.headers['content-disposition'] as string, /attachment/);
+    assert.match(autorizado.headers['cache-control'] as string, /no-store/);
+    assert.equal(autorizado.headers['x-content-type-options'], 'nosniff');
+    assert.ok(Number(autorizado.headers['content-length']) > 1000);
+
+    const auditoria = await connection('registros_auditoria')
+        .where({ acao: 'DOCUMENTO_CLINICO.PDF_GERADO', recurso_id: laudoId })
+        .first('id');
+    assert.ok(auditoria);
+
+    await request(appTeste).get('/documentos-clinicos/' + laudoId + '/pdf')
+        .set(headers(ids.userB)).expect(404);
+    await request(appTeste).get('/documentos-clinicos/' + laudoId + '/pdf')
+        .set(headers(ids.admin)).expect(403);
+    await request(appTeste).get('/documentos-clinicos/' + documentoId + '/pdf')
+        .set(headers(ids.userA)).expect(404);
+    await request(appTeste).get('/documentos-clinicos/' + laudoId + '/pdf?versao=999')
+        .set(headers(ids.userA)).expect(404);
+    for (const query of ['?versao=abc', '?versao=0', '?versao=1&extra=1']) {
+        await request(appTeste).get('/documentos-clinicos/' + laudoId + '/pdf' + query)
+            .set(headers(ids.userA)).expect(400);
+    }
+});
+
+test('versão finalizada de laudo pode ser exportada sem criar assinatura digital', async () => {
+    const finalizado = await request(appTeste)
+        .post('/documentos-clinicos/' + laudoId + '/finalizar')
+        .set(headers(ids.userA))
+        .send({ ultima_versao_esperada: 1 }).expect(200);
+    assert.equal(finalizado.body.data.versao, 2);
+    const pdf = await request(appTeste).get('/documentos-clinicos/' + laudoId + '/pdf')
+        .set(headers(ids.userA)).expect(200);
+    assert.match(pdf.headers['content-type'] as string, /application\/pdf/);
+    const anterior = await request(appTeste).get('/documentos-clinicos/' + laudoId + '/pdf?versao=1')
+        .set(headers(ids.userA)).expect(200);
+    assert.ok(Number(anterior.headers['content-length']) > 1000);
+});
+
 test('linha do tempo agrega anamnese, laudo e evolucao sem textos sensiveis', async () => {
     const resposta = await request(appTeste)
         .get(`/prontuario/pacientes/${ids.clienteA}/historico`)
@@ -743,6 +790,11 @@ test('revogacao administrativa corta leitura e adendos mesmo com perfil clinico 
         .post(`/vinculos-clinicos/${vinculoA}/revogar`)
         .set(headers(ids.admin))
         .send({ motivo: 'Repeticao indevida ficticia' }).expect(409);
+});
+
+test('revogação bloqueia exportação de PDF mesmo para documento existente', async () => {
+    await request(appTeste).get('/documentos-clinicos/' + laudoId + '/pdf')
+        .set(headers(ids.userA)).expect(404);
 });
 
 test('revogacao bloqueia leitura imediatamente', async () => {
