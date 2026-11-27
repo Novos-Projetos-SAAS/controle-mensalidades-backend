@@ -170,13 +170,12 @@ class DocumentosClinicosService {
             const versao = versaoSolicitada === undefined
                 ? ultima
                 : await trx<Versao>('versoes_registros_clinicos')
-                    .where({
-                        registro_id: id,
-                        organizacao_id: contexto.organizacaoId,
-                        area_negocio_id: contexto.areaNegocioId,
-                        cliente_id: registro.cliente_id,
-                        versao: versaoSolicitada,
-                    }).first();
+                    .where('registro_id', id)
+                    .andWhere('organizacao_id', contexto.organizacaoId)
+                    .andWhere('area_negocio_id', contexto.areaNegocioId)
+                    .andWhere('cliente_id', registro.cliente_id)
+                    .andWhere('versao', versaoSolicitada)
+                    .first();
             if (!versao) throw naoEncontrado();
 
             const [organizacao, paciente, profissional] = await Promise.all([
