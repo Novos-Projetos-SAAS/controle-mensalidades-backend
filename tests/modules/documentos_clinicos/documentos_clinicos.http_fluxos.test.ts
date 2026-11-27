@@ -749,9 +749,12 @@ test('linha do tempo pagina mais de 50 registros sem perder sessões e laudos an
     }
     await request(appTeste).get(rota + '?limite=50&deslocamento=50')
         .set(headers(ids.admin)).expect(403);
+    // Outro profissional possui somente uma sessão; não pode enumerar as 55 alheias.
     await request(appTeste).get(rota + '?limite=50&deslocamento=50')
         .set(headers(ids.userB)).expect(200)
-        .then((resposta) => assert.deepEqual(resposta.body.data, []));
+        .then((resposta) => assert.deepEqual(
+            resposta.body.data.map((entrada: { id: string }) => entrada.id), [],
+        ));
 });
 
 test('historico documental rejeita DELETE e TRUNCATE fisico', async () => {
