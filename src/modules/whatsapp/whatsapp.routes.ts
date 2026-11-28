@@ -11,6 +11,8 @@ import whatsappOnboardingController from './whatsapp.onboarding.controller.js';
 import { processarEventoStatusMetaVerificado } from './whatsapp.webhook.service.js';
 import { verificarHandshakeMeta } from './whatsapp.webhook.js';
 
+import { escopoBaileys, statusBaileys, iniciarBaileys, testarBaileys, pararBaileys, esquecerBaileys } from './whatsapp.baileys.demo.js';
+
 const whatsappRoutes = Router();
 
 whatsappRoutes.get('/webhook', (req, res) => {
@@ -74,6 +76,29 @@ whatsappRoutes.get(
     contextoArea,
     whatsappOnboardingController.obterStatus,
 );
+
+// Rotas administrativas, com escopo de área validado e QR sem cache.
+whatsappRoutes.get('/baileys/status', contextoArea, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json({ status: 'success', data: await statusBaileys(escopoBaileys(req)) });
+});
+whatsappRoutes.post('/baileys/conectar', contextoArea, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json({ status: 'success', data: await iniciarBaileys(escopoBaileys(req)) });
+});
+whatsappRoutes.post('/baileys/testar', contextoArea, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    if (req.body?.confirmado !== true) throw new AppError('Confirme o destinatário de teste.', 400, 'BAILEYS_CONFIRMACAO_NECESSARIA');
+    res.json({ status: 'success', data: await testarBaileys(escopoBaileys(req)) });
+});
+whatsappRoutes.post('/baileys/parar', contextoArea, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json({ status: 'success', data: await pararBaileys(escopoBaileys(req)) });
+});
+whatsappRoutes.delete('/baileys/sessao', contextoArea, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json({ status: 'success', data: await esquecerBaileys(escopoBaileys(req)) });
+});
 
 whatsappRoutes.get('/configuracoes', whatsappController.listarConfiguracoes);
 whatsappRoutes.put('/configuracoes', whatsappController.salvarConfiguracao);
