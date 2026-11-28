@@ -13,6 +13,9 @@ import { verificarHandshakeMeta } from './whatsapp.webhook.js';
 
 import { escopoBaileys, statusBaileys, iniciarBaileys, testarBaileys, pararBaileys, esquecerBaileys } from './whatsapp.baileys.demo.js';
 
+import { autorizarRotina } from '../financeiro/financeiro.agenda.js';
+import { executarRotinaBaileys } from './whatsapp.baileys.rotina.js';
+
 const whatsappRoutes = Router();
 
 whatsappRoutes.get('/webhook', (req, res) => {
@@ -55,6 +58,18 @@ whatsappRoutes.post('/webhook', async (req, res, next) => {
     } catch (erro) {
         return next(erro);
     }
+});
+
+whatsappRoutes.post('/baileys/rotina', async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const token = process.env.WHATSAPP_BAILEYS_ROTINA_TOKEN;
+    if (process.env.WHATSAPP_BAILEYS_AUTOMATIC_ENABLED !== 'true') {
+        throw new AppError('Rotina desabilitada.', 404, 'BAILEYS_ROTINA_DESABILITADA');
+    }
+    if (!token || !autorizarRotina(req.get('authorization'), token)) {
+        throw new AppError('Não autorizado.', 401, 'ROTINA_NAO_AUTORIZADA');
+    }
+    return res.json({ status: 'success', data: await executarRotinaBaileys() });
 });
 
 whatsappRoutes.use(verifyUser, verifyOrganization, verifyProfile('ADMINISTRADOR'));
