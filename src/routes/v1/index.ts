@@ -17,6 +17,11 @@ import vinculoUsuarioRoutes from '../../modules/profissionais/vinculo_usuario.ro
 import financeiroRoutes from '../../modules/financeiro/financeiro.routes.js';
 import whatsappRoutes from '../../modules/whatsapp/whatsapp.routes.js';
 import { pagamentosPublicRoutes } from '../../modules/pagamentos/pagamentos.routes.js';
+import sessoesClinicasRoutes from '../../modules/sessoes_clinicas/sessoes_clinicas.routes.js';
+import documentosClinicosRoutes from '../../modules/documentos_clinicos/documentos_clinicos.routes.js';
+import prontuarioTimelineRoutes from '../../modules/prontuario/prontuario.timeline.routes.js';
+import vinculosClinicosRoutes from '../../modules/vinculos_clinicos/vinculos_clinicos.routes.js';
+import { homologacaoClinicaAtiva } from '../../modules/prontuario/prontuario.homologacao.middleware.js';
 
 const v1Routes = Router();
 
@@ -43,5 +48,14 @@ v1Routes.use('/agendamentos', agendamentosRoutes);
 v1Routes.use('/financeiro', financeiroRoutes);
 v1Routes.use('/whatsapp', whatsappRoutes);
 v1Routes.use('/pagamentos', pagamentosPublicRoutes);
+
+// Nunca montar o prontuário em NODE_ENV=production. Acesso em desenvolvimento
+// exige opt-in explícito e dados sintéticos, além das permissões dos serviços.
+if (homologacaoClinicaAtiva()) {
+    v1Routes.use('/prontuario', prontuarioTimelineRoutes);
+    v1Routes.use('/documentos-clinicos', documentosClinicosRoutes);
+    v1Routes.use('/sessoes-clinicas', sessoesClinicasRoutes);
+    v1Routes.use('/vinculos-clinicos', vinculosClinicosRoutes);
+}
 
 export default v1Routes;
