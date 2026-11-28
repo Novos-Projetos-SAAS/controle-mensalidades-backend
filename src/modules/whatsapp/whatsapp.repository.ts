@@ -446,6 +446,7 @@ class WhatsappRepository implements ArmazenamentoAgendadorWhatsapp, ResolverCred
                 )
                 .whereNotNull('mensalidade_id')
                 .whereNotNull('lembrete_tipo')
+                .whereNull('provedor_execucao')
                 .whereNull('deletado_em')
                 .where((query) =>
                     query
