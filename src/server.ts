@@ -6,6 +6,8 @@ import {
     pararRotinaPagamentos,
 } from './modules/pagamentos/pagamentos.worker.js';
 
+import { pararTodasBaileys } from './modules/whatsapp/whatsapp.baileys.demo.js';
+
 const server = app.listen(env.PORT, () => {
     console.log(`Servidor executando na porta ${env.PORT}`);
     iniciarRotinaPagamentos();
@@ -14,6 +16,7 @@ const server = app.listen(env.PORT, () => {
 async function shutdown() {
     server.close();
     await pararRotinaPagamentos();
+    await pararTodasBaileys();
     await connection.destroy();
 }
 process.once('SIGTERM', () => {
