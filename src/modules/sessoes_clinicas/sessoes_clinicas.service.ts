@@ -3,6 +3,7 @@ import AppError from '../../shared/errors/AppError.js';
 import sessoesClinicasRepository from './sessoes_clinicas.repository.js';
 
 import autorizacaoClinicaService from './autorizacao_clinica.service.js';
+import { exigirVinculoPacienteProfissional } from '../vinculos_clinicos/vinculos_clinicos.autorizacao.js';
 
 import auditoriaClinicaTransacional from './sessoes_clinicas.auditoria_transacional.js';
 
@@ -110,6 +111,18 @@ class SessoesClinicasService {
                     );
                 }
 
+                // Criação somente de paciente designado ao próprio profissional.
+                // A rota pública continua bloqueada até homologação.
+                if (!usuarioId) {
+                    throw new AppError('Autenticação clínica necessária.', 401, 'AUTENTICACAO_NECESSARIA');
+                }
+                await exigirVinculoPacienteProfissional(transaction, {
+                    organizacaoId: contexto.organizacaoId,
+                    areaNegocioId: contexto.areaNegocioId,
+                    profissionalId: dados.profissional_id,
+                    clienteId: dados.cliente_id,
+                });
+
                 const profissional = await sessoesClinicasRepository.buscarProfissionalElegivel(
                     contexto.organizacaoId,
                     contexto.areaNegocioId,
@@ -192,6 +205,27 @@ class SessoesClinicasService {
                     }),
                     ...(dados.observacoes !== undefined && {
                         observacoes: dados.observacoes,
+                    }),
+                    ...(dados.objetivo_sessao !== undefined && {
+                        objetivo_sessao: dados.objetivo_sessao,
+                    }),
+                    ...(dados.avaliacao_previa !== undefined && {
+                        avaliacao_previa: dados.avaliacao_previa,
+                    }),
+                    ...(dados.procedimentos_realizados !== undefined && {
+                        procedimentos_realizados: dados.procedimentos_realizados,
+                    }),
+                    ...(dados.exercicios_parametros !== undefined && {
+                        exercicios_parametros: dados.exercicios_parametros,
+                    }),
+                    ...(dados.resposta_paciente !== undefined && {
+                        resposta_paciente: dados.resposta_paciente,
+                    }),
+                    ...(dados.orientacoes !== undefined && {
+                        orientacoes: dados.orientacoes,
+                    }),
+                    ...(dados.plano_proxima_sessao !== undefined && {
+                        plano_proxima_sessao: dados.plano_proxima_sessao,
                     }),
                 };
 
@@ -281,6 +315,12 @@ class SessoesClinicasService {
             if (!sessaoExistente) {
                 throw erroSessaoNaoEncontrada();
             }
+            await exigirVinculoPacienteProfissional(transaction, {
+                organizacaoId: contexto.organizacaoId,
+                areaNegocioId: contexto.areaNegocioId,
+                profissionalId: sessaoExistente.profissional_id,
+                clienteId: sessaoExistente.cliente_id,
+            });
 
             // 2. Monta somente os campos informados.
             const atualizacao: DadosCorrecaoSessaoClinica = {
@@ -299,6 +339,27 @@ class SessoesClinicasService {
                 ...(dados.observacoes !== undefined && {
                     observacoes: dados.observacoes,
                 }),
+                ...(dados.objetivo_sessao !== undefined && {
+                    objetivo_sessao: dados.objetivo_sessao,
+                }),
+                ...(dados.avaliacao_previa !== undefined && {
+                    avaliacao_previa: dados.avaliacao_previa,
+                }),
+                ...(dados.procedimentos_realizados !== undefined && {
+                    procedimentos_realizados: dados.procedimentos_realizados,
+                }),
+                ...(dados.exercicios_parametros !== undefined && {
+                    exercicios_parametros: dados.exercicios_parametros,
+                }),
+                ...(dados.resposta_paciente !== undefined && {
+                    resposta_paciente: dados.resposta_paciente,
+                }),
+                ...(dados.orientacoes !== undefined && {
+                    orientacoes: dados.orientacoes,
+                }),
+                ...(dados.plano_proxima_sessao !== undefined && {
+                    plano_proxima_sessao: dados.plano_proxima_sessao,
+                }),
             };
 
             // 3. Define os campos clínicos que podem ser corrigidos.
@@ -308,6 +369,13 @@ class SessoesClinicasService {
                 'prognostico',
                 'plano_terapeutico',
                 'observacoes',
+                'objetivo_sessao',
+                'avaliacao_previa',
+                'procedimentos_realizados',
+                'exercicios_parametros',
+                'resposta_paciente',
+                'orientacoes',
+                'plano_proxima_sessao',
             ] as const;
 
             const camposAlterados: string[] = [];

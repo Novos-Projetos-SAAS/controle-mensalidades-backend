@@ -1,0 +1,73 @@
+name: Prontuario clinico documental - validacao segura
+on:
+  pull_request:
+    branches:
+      - main
+      - review/fisioterapia-evolucao-estruturada-20261122
+      - feat/prontuario-anamnese-laudo-versionados-20261122
+      - feat/prontuario-vinculo-paciente-profissional-20261123
+      - feat/prontuario-pacientes-vinculados-20261123
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  documentais:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: prontuario_ficticio
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d prontuario_ficticio"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      AMBIENTE_BANCO: teste
+      DATABASE_URL_TEST: postgresql://postgres:postgres@127.0.0.1:5432/prontuario_ficticio
+      DB_SSL: 'false'
+      CPF_CRYPTO_MODE: transition
+      JWT_SECRET_TEST: clinico-ficticio-github
+      WHATSAPP_META_REAL_SEND_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Secrets de teste exclusivos do job
+        run: |
+          node -e "const fs=require('node:fs');const {randomBytes}=require('node:crypto');fs.appendFileSync(process.env.GITHUB_ENV,['CPF_ENCRYPTION_KEY='+randomBytes(32).toString('hex'),'CPF_LOOKUP_KEY='+randomBytes(32).toString('hex'),'WHATSAPP_CREDENTIALS_ENCRYPTION_KEY='+randomBytes(32).toString('base64')].join(String.fromCharCode(10))+String.fromCharCode(10))"
+          touch .env.test
+      - run: npm run migrate:latest -- --env test
+      - run: npm run typecheck
+      - run: npm run lint
+      - name: Verificar reconciliação de migration ledger (somente unidade)
+        run: npm run test:migrations:preflight
+      - name: Validar contratos e protecoes da migration
+        run: node --env-file=.env.test --import tsx --test tests/modules/documentos_clinicos/documentos_clinicos.validator.test.ts tests/database/clinical_document_versions_migration.test.ts
+      - name: Testar paginação da linha do tempo unificada
+        run: node --env-file=.env.test --import tsx --test tests/modules/prontuario/prontuario.timeline.paginacao.test.ts
+      - name: Gerar e validar PDF A4 de laudo fisioterapeutico sintético
+        run: node --env-file=.env.test --import tsx --test tests/modules/documentos_clinicos/laudo.pdf.test.ts
+      - name: Validar destino e confirmação da migração do Neon desenv
+        run: npm run test:prontuario:migrate:desenv
+      - name: Testar gate de persistencia somente homologacao
+        run: node --env-file=.env.test --import tsx --test tests/database/prontuario_homologacao_gate.test.ts
+      - name: Fluxo HTTP completo com profissionais e pacientes sintéticos
+        run: node --env-file=.env.test --import tsx --test tests/modules/documentos_clinicos/documentos_clinicos.http_fluxos.test.ts
+      - name: Garantir que rotas continuem bloqueadas
+        run: node --env-file=.env.test --import tsx --test tests/modules/sessoes_clinicas/sessoes_clinicas.routes.test.ts tests/modules/documentos_clinicos/documentos_clinicos.routes.test.ts
+      - name: Persistir prontuario via HTTP real com PostgreSQL descartavel
+        env:
+          CLINICAL_HOMOLOGATION_ENABLED: 'true'
+          CLINICAL_HOMOLOGATION_CONFIRMATION: SOMENTE_DADOS_FICTICIOS
+        run: node --env-file=.env.test --import tsx --test tests/modules/documentos_clinicos/documentos_clinicos.http_fluxos.test.ts

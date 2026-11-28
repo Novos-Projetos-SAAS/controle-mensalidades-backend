@@ -76,40 +76,27 @@ function corpoCriacao(profissionalId = ids.profissionalTitular) {
         profissional_id: profissionalId,
         data_sessao: '2026-10-02T14:00:00Z',
         evolucao: 'Atendimento avulso ficticio para teste HTTP.',
+        objetivo_sessao: 'Trabalho funcional com paciente fictício',
+        procedimentos_realizados: 'Mobilização e exercícios terapêuticos fictícios',
+        resposta_paciente: 'Resposta funcional fictícia',
     };
 }
 
-async function limparFixture() {
-    // Só removemos os IDs desta suíte. Não apagamos dados de outras suítes.
-    await connection('registros_auditoria').where('organizacao_id', ids.organizacaoA).del();
-    await connection('sessoes_clinicas')
-        .where('organizacao_id', ids.organizacaoA)
-        .whereIn('cliente_id', [ids.paciente])
-        .del();
-    await connection('clientes_areas').where('cliente_id', ids.paciente).del();
-    await connection('profissionais_areas')
-        .whereIn('profissional_id', [ids.profissionalTitular, ids.segundoProfissional])
-        .del();
-    await connection('profissionais')
-        .whereIn('id', [ids.profissionalTitular, ids.segundoProfissional])
-        .del();
-    await connection('clientes').where('id', ids.paciente).del();
-    await connection('usuarios_organizacoes')
-        .whereIn('usuario_id', [ids.titular, ids.segundoUsuario, ids.administrador])
-        .del();
-    await connection('usuarios')
-        .whereIn('id', [ids.titular, ids.segundoUsuario, ids.administrador])
-        .del();
-    await connection('areas_negocio')
-        .whereIn('id', [ids.areaA, ids.areaAlternativa, ids.areaB])
-        .del();
-    await connection('organizacoes').whereIn('id', [ids.organizacaoA, ids.organizacaoB]).del();
+function exigirPostgresEfemero() {
+    if (process.env.NODE_ENV !== 'test' || process.env.AMBIENTE_BANCO !== 'teste') {
+        throw new Error('Fluxo clínico HTTP exige ambiente de teste isolado.');
+    }
+    const url = process.env.DATABASE_URL_TEST;
+    if (!url) throw new Error('DATABASE_URL_TEST ausente.');
+    const destino = new URL(url);
+    if (!['127.0.0.1', 'localhost'].includes(destino.hostname) ||
+        destino.pathname !== '/clinico_ci') {
+        throw new Error('Fluxo clínico HTTP restrito ao PostgreSQL descartável clinico_ci.');
+    }
 }
 
 before(async () => {
-    if (env.NODE_ENV !== 'test') {
-        throw new Error('Execução proibida fora de NODE_ENV=test.');
-    }
+    exigirPostgresEfemero();
 
     await connection('organizacoes').insert([
         { id: ids.organizacaoA, nome: 'Clinica HTTP A - Testes', ativo: true },
@@ -228,16 +215,30 @@ before(async () => {
             evolucao: 'Registro de outro profissional.',
         },
     ]);
+    // A migration 069 exige vínculo ativo além do acesso profissional autorizado.
+    // O banco descartável será eliminado por inteiro pelo job; vínculos são append-only.
+    await connection('vinculos_clinicos_pacientes').insert([
+        {
+            organizacao_id: ids.organizacaoA,
+            area_negocio_id: ids.areaA,
+            cliente_id: ids.paciente,
+            profissional_id: ids.profissionalTitular,
+            concedido_por_usuario_id: ids.administrador,
+        },
+        {
+            organizacao_id: ids.organizacaoA,
+            area_negocio_id: ids.areaA,
+            cliente_id: ids.paciente,
+            profissional_id: ids.segundoProfissional,
+            concedido_por_usuario_id: ids.administrador,
+        },
+    ]);
 });
 
 after(async () => {
-    try {
-        if (env.NODE_ENV === 'test') {
-            await limparFixture();
-        }
-    } finally {
-        await connection.destroy();
-    }
+    // A auditoria e os vínculos são imutáveis: não tentar apagar dados por teste.
+    // PostgreSQL clinico_ci é descartado por completo ao fim deste workflow.
+    await connection.destroy();
 });
 
 // Esta suíte não produz correções reais: o trigger de histórico é imutável.
@@ -335,13 +336,16 @@ test('cria sessão avulsa do próprio profissional pelo HTTP', async () => {
     const sessaoIdCriada = resposta.body.data.id as string;
     assert.ok(sessaoIdCriada);
     assert.equal(resposta.body.data.profissional_id, ids.profissionalTitular);
+    assert.equal(resposta.body.data.procedimentos_realizados, 'Mobilização e exercícios terapêuticos fictícios');
 
     const persistida = await connection('sessoes_clinicas')
-        .select('id', 'cliente_id', 'profissional_id')
+        .select('id', 'cliente_id', 'profissional_id', 'procedimentos_realizados', 'resposta_paciente')
         .where('id', sessaoIdCriada)
         .first();
     assert.equal(persistida?.cliente_id, ids.paciente);
     assert.equal(persistida?.profissional_id, ids.profissionalTitular);
+    assert.equal(persistida?.procedimentos_realizados, 'Mobilização e exercícios terapêuticos fictícios');
+    assert.equal(persistida?.resposta_paciente, 'Resposta funcional fictícia');
 });
 
 test('não permite criar sessão em nome de outro fisioterapeuta', async () => {

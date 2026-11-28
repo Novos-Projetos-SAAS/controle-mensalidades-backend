@@ -2,7 +2,11 @@
 
 Este documento define o que precisa estar comprovado antes de autorizar a preparação de uma futura Etapa 18. A decisão final é do responsável pelo projeto. Aprovar a entrada não monta rotas, não publica endpoints e não libera prontuários.
 
-**Estado atual em 08/11/2026: MANTER HOMOLOGAÇÃO BLOQUEADA.** Não há evidências do ambiente Neon de homologação; o banco de teste apresentou role de privilégios elevados e não pode ser tratado como evidência de homologação.
+**Estado atual, revisão 26/11/2026: MANTER LIBERAÇÃO CLÍNICA PARA PACIENTES REAIS BLOQUEADA.** A implementação de desenvolvimento aceita dados sintéticos mediante opt-in explícito, mas não há aprovação dos controles de produção descritos abaixo. As rotas não são montadas quando NODE_ENV=production.
+
+No projeto Neon `mensalidades-desenv`, consulta somente leitura confirmou as migrations 068 (documentos), 069 (vínculos) e 070 (evolução) presentes no ledger. Essa constatação não substitui homologação de segurança nem comprova que as migrações tenham sido aplicadas em produção.
+
+**Bloqueios observados no Neon desenv em 26/11:** a consulta de roles de login exibiu `cloud_admin`, `neon_service` e `neondb_owner` — nenhuma role de runtime dedicada e restrita foi identificada entre elas. `neondb_owner` possui `CREATEROLE`, `CREATEDB`, `BYPASSRLS` e `REPLICATION`; não deve servir de evidência de least privilege para o processo HTTP clínico. O painel do projeto indica histórico retido por 21.600 segundos (6 horas); política de recuperação, teste de restore e RPO/RTO continuam sem homologação. A branch padrão do Neon desenv aparece nomeada `production`, embora o projeto seja `mensalidades-desenv`: confirmar o destino em cada execução e não presumir equivalência com produção real.
 
 ## Critérios obrigatórios
 
@@ -66,7 +70,7 @@ Com um ou mais controles obrigatórios pendentes, reprovados ou não verificados
 - Banco de teste: diagnóstico de privilégios reprovado para a role de teste; não representa a role de homologação.
 - TLS de teste: handshake aprovado somente para o endpoint de teste; homologação não verificada.
 - Código local: timeout de conexão PostgreSQL explícito com default de 8 s; timeouts e pool revisados em código, mas valores efetivos de homologação não verificados.
-- Rotas clínicas: não montadas em `src/routes/v1/index.ts`; middleware de bloqueio permanece no módulo.
+- Rotas clínicas: montadas em desenvolvimento/teste somente com opt-in duplo e migrations verificadas; em `NODE_ENV=production` continuam deliberadamente não montadas. Middleware fail-closed permanece em cada módulo.
 - Recuperação, RPO/RTO, roles efetivas, isolamento e logs de homologação: não verificados/pendentes.
 
 Consultar [matriz de evidências](evidencias-homologacao-neon.md), [checklist do administrador Neon](checklist-administrador-neon.md) e [plano de liberação controlada](plano-liberacao-controlada.md).

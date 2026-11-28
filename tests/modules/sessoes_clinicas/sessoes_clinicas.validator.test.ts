@@ -96,3 +96,27 @@ test('Validator rejeita ID de sessao clinica invalido', () => {
         verificarErro('SESSAO_CLINICA_ID_INVALIDO'),
     );
 });
+
+test('valida registro estruturado do que foi realizado na sessão sem campos desconhecidos', () => {
+    const dados = validarCriacaoSessaoClinica({
+        cliente_id: clienteId,
+        profissional_id: profissionalId,
+        data_sessao: '2026-10-01T14:00:00-03:00',
+        evolucao: 'Evolução observada.',
+        objetivo_sessao: 'Melhorar mobilidade',
+        procedimentos_realizados: 'Treino de marcha e exercícios funcionais',
+        exercicios_parametros: 'Duração e intensidade observadas',
+        resposta_paciente: 'Resposta tolerável',
+    });
+    assert.equal(dados.procedimentos_realizados, 'Treino de marcha e exercícios funcionais');
+    assert.equal(dados.objetivo_sessao, 'Melhorar mobilidade');
+    const patch = validarAtualizacaoSessaoClinica({
+        procedimentos_realizados: 'Treino revisado',
+        orientacoes: null,
+    });
+    assert.equal(patch.procedimentos_realizados, 'Treino revisado');
+    assert.equal(patch.orientacoes, null);
+    assert.throws(() => validarAtualizacaoSessaoClinica({
+        procedimentos_realizados: '   ',
+    }), verificarErro('DADOS_SESSAO_CLINICA_INVALIDOS'));
+});

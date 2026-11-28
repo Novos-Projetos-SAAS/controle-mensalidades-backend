@@ -22,6 +22,13 @@ export type SessaoClinicaDetalhe = SessaoClinicaResumo & {
     prognostico: string | null;
     plano_terapeutico: string | null;
     observacoes: string | null;
+    objetivo_sessao: string | null;
+    avaliacao_previa: string | null;
+    procedimentos_realizados: string | null;
+    exercicios_parametros: string | null;
+    resposta_paciente: string | null;
+    orientacoes: string | null;
+    plano_proxima_sessao: string | null;
     corrigido_por_usuario_id: string | null;
 };
 
@@ -42,6 +49,13 @@ export type DadosNovaSessaoClinica = {
     prognostico?: string;
     plano_terapeutico?: string;
     observacoes?: string;
+    objetivo_sessao?: string;
+    avaliacao_previa?: string;
+    procedimentos_realizados?: string;
+    exercicios_parametros?: string;
+    resposta_paciente?: string;
+    orientacoes?: string;
+    plano_proxima_sessao?: string;
 };
 
 export type DadosCorrecaoSessaoClinica = {
@@ -50,6 +64,13 @@ export type DadosCorrecaoSessaoClinica = {
     prognostico?: string | null;
     plano_terapeutico?: string | null;
     observacoes?: string | null;
+    objetivo_sessao?: string | null;
+    avaliacao_previa?: string | null;
+    procedimentos_realizados?: string | null;
+    exercicios_parametros?: string | null;
+    resposta_paciente?: string | null;
+    orientacoes?: string | null;
+    plano_proxima_sessao?: string | null;
 };
 
 export type HistoricoCorrecaoSessaoClinica = {
@@ -86,6 +107,13 @@ const camposDetalhe = [
     'sc.prognostico',
     'sc.plano_terapeutico',
     'sc.observacoes',
+    'sc.objetivo_sessao',
+    'sc.avaliacao_previa',
+    'sc.procedimentos_realizados',
+    'sc.exercicios_parametros',
+    'sc.resposta_paciente',
+    'sc.orientacoes',
+    'sc.plano_proxima_sessao',
     'sc.corrigido_por_usuario_id',
 ] as const;
 
@@ -121,6 +149,12 @@ function consultaClinicaAutorizada(
                 'sc.area_negocio_id',
             );
         })
+        .innerJoin('vinculos_clinicos_pacientes as vc', function () {
+            this.on('vc.organizacao_id', '=', 'sc.organizacao_id')
+                .andOn('vc.area_negocio_id', '=', 'sc.area_negocio_id')
+                .andOn('vc.cliente_id', '=', 'sc.cliente_id')
+                .andOn('vc.profissional_id', '=', 'sc.profissional_id');
+        })
         .innerJoin('usuarios as u', 'u.id', 'p.usuario_id')
         .innerJoin('usuarios_organizacoes as uo', function () {
             this.on('uo.usuario_id', '=', 'u.id').andOn(
@@ -150,6 +184,7 @@ function consultaClinicaAutorizada(
             'o.ativo': true,
         })
         .whereNull('sc.deletado_em')
+        .whereNull('vc.revogado_em')
         .whereNull('p.deletado_em')
         .whereNull('pa.deletado_em')
         .whereNull('u.deletado_em')
@@ -281,6 +316,13 @@ class SessoesClinicasRepository {
                 prognostico: dados.prognostico ?? null,
                 plano_terapeutico: dados.plano_terapeutico ?? null,
                 observacoes: dados.observacoes ?? null,
+                objetivo_sessao: dados.objetivo_sessao ?? null,
+                avaliacao_previa: dados.avaliacao_previa ?? null,
+                procedimentos_realizados: dados.procedimentos_realizados ?? null,
+                exercicios_parametros: dados.exercicios_parametros ?? null,
+                resposta_paciente: dados.resposta_paciente ?? null,
+                orientacoes: dados.orientacoes ?? null,
+                plano_proxima_sessao: dados.plano_proxima_sessao ?? null,
             })
             .returning('id');
 

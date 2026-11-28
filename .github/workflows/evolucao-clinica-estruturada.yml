@@ -1,0 +1,50 @@
+name: Evolucao clinica estruturada - testes com dados ficticios
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  clinico:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: clinico_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d clinico_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      AMBIENTE_BANCO: teste
+      DATABASE_URL_TEST: postgresql://postgres:postgres@127.0.0.1:5432/clinico_ci
+      DB_SSL: 'false'
+      CPF_CRYPTO_MODE: transition
+      WHATSAPP_META_REAL_SEND_ENABLED: 'false'
+      JWT_SECRET_TEST: clinico-ficticio-github
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Segredos temporarios exclusivos do job
+        run: |
+          node -e "const fs=require('node:fs');const {randomBytes}=require('node:crypto');fs.appendFileSync(process.env.GITHUB_ENV,['CPF_ENCRYPTION_KEY='+randomBytes(32).toString('hex'),'CPF_LOOKUP_KEY='+randomBytes(32).toString('hex'),'WHATSAPP_CREDENTIALS_ENCRYPTION_KEY='+randomBytes(32).toString('base64')].join(String.fromCharCode(10))+String.fromCharCode(10))"
+          touch .env.test
+      - run: npm run migrate:latest -- --env test
+      - run: npm run typecheck
+      - name: Validadores e fluxo HTTP isolado por fisioterapeuta
+        run: node --env-file=.env.test --import tsx --test tests/modules/sessoes_clinicas/sessoes_clinicas.validator.test.ts tests/modules/sessoes_clinicas/sessoes_clinicas.http_fluxos_completos.test.ts
+      - name: Rotas clínicas públicas permanecem fechadas
+        run: node --env-file=.env.test --import tsx --test tests/modules/sessoes_clinicas/sessoes_clinicas.routes.test.ts
+      - run: npm run lint
