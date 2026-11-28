@@ -23,6 +23,8 @@ import prontuarioTimelineRoutes from '../../modules/prontuario/prontuario.timeli
 import vinculosClinicosRoutes from '../../modules/vinculos_clinicos/vinculos_clinicos.routes.js';
 import { homologacaoClinicaAtiva } from '../../modules/prontuario/prontuario.homologacao.middleware.js';
 
+import financeiroAgendaRoutes from '../../modules/financeiro/financeiro.agenda.routes.js';
+
 const v1Routes = Router();
 
 v1Routes.use('/auth', authRoutes);
@@ -46,6 +48,7 @@ v1Routes.use('/profissionais', vinculoUsuarioRoutes);
 
 v1Routes.use('/agendamentos', agendamentosRoutes);
 v1Routes.use('/financeiro', financeiroRoutes);
+v1Routes.use('/rotinas/financeiro', financeiroAgendaRoutes);
 v1Routes.use('/whatsapp', whatsappRoutes);
 v1Routes.use('/pagamentos', pagamentosPublicRoutes);
 

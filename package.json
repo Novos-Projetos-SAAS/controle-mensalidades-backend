@@ -51,7 +51,10 @@
         "knex": "^3.3.0",
         "log-symbols": "^7.0.1",
         "pg": "^8.23.0",
-        "zod": "^4.5.4"
+        "zod": "^4.5.4",
+        "@whiskeysockets/baileys": "7.0.0-rc14",
+        "pino": "^9.0.0",
+        "qrcode": "^1.5.4"
     },
     "devDependencies": {
         "@eslint/js": "^10.0.1",
@@ -69,6 +72,8 @@
         "supertest": "^7.2.2",
         "tsx": "^4.23.13",
         "typescript": "5.9",
-        "typescript-eslint": "^8.69.0"
+        "typescript-eslint": "^8.69.0",
+        "@types/qrcode": "^1.5.5",
+        "qrcode-terminal": "0.12.0"
     }
 }

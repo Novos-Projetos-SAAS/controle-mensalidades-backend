@@ -3,6 +3,7 @@ import type { Knex } from 'knex';
 import AppError from '../../../shared/errors/AppError.js';
 import { validarTokenPagamento } from '../pagamentos.validator.js';
 import { gerarCompetenciasAutomaticas } from '../../financeiro/financeiro.rotina.js';
+import { geracaoProgramadaAtiva } from '../../financeiro/financeiro.agenda.js';
 import { dataSaoPaulo } from '../pagamento.policy.js';
 import { AbacatePayProvider } from './abacatepay.provider.js';
 import { AbacatePayConfiguracao } from './configuracao.js';
@@ -108,7 +109,7 @@ export class AbacatePayService {
     }
     async executarCiclo() {
         const today = dataSaoPaulo(this.d.now());
-        await gerarCompetenciasAutomaticas(this.d.db, today);
+        if (!geracaoProgramadaAtiva()) await gerarCompetenciasAutomaticas(this.d.db, today);
         await this.recuperarIntencoes();
         await this.processarEventos();
         const invalid = await this.d
