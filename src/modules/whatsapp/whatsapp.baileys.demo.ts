@@ -20,6 +20,7 @@ type Sessao = {
     socket: ReturnType<typeof makeWASocket> | null;
     status: 'CONECTANDO' | 'QR_CODE' | 'CONECTADO' | 'ERRO';
     qr: string | null;
+    qrVersao: number;
     timer: ReturnType<typeof setTimeout> | null;
     gravacao: Promise<void>;
     encerrando: boolean;
@@ -52,12 +53,12 @@ async function encerrar(s: Sessao, apagar = false) {
     s.encerrando = true;
     s.qr = null;
     if (s.timer) clearTimeout(s.timer);
-    s.socket?.end(undefined);
+    try { s.socket?.end(undefined); } catch { /* lease será liberado abaixo */ }
     await s.gravacao.catch(() => {});
     try {
         await consulta(s.escopo).where('lease_id', s.lease).update({
             lease_id: null, lease_ate: null,
-            ...(apagar ? { estado_cifrado: null } : {}),
+            ...(apagar ? { estado_cifrado: null, pareada: false } : {}),
         });
     } finally {
         if (sessoes.get(id(s.escopo)) === s) sessoes.delete(id(s.escopo));
@@ -67,15 +68,18 @@ function encerrarSeguro(s: Sessao, apagar = false) {
     void encerrar(s, apagar).catch(() => {});
 }
 export async function statusBaileys(e: EscopoBaileys) {
-    if (!habilitado(e)) return { habilitado: false, status: 'DESABILITADO', qr: null, salvo: false, ultimoTeste: null, destinatarioTeste: null };
-    const row = await consulta(e).first('estado_cifrado', 'ultimo_teste');
+    if (!habilitado(e)) return { habilitado: false, status: 'DESABILITADO', qr: null, salvo: false, ultimoTeste: null, destinatarioTeste: null, modo: null, testado: false, rotinaAtiva: false };
+    const row = await consulta(e).first('estado_cifrado', 'pareada', 'ultimo_teste');
     const s = sessoes.get(id(e));
     const numero = process.env.WHATSAPP_BAILEYS_DEMO_TEST_NUMBER ?? '';
     return {
         habilitado: true,
         status: s && !s.encerrando ? s.status : 'DESCONECTADO',
         qr: s && !s.encerrando ? s.qr : null,
-        salvo: !!row?.estado_cifrado,
+        salvo: !!row?.estado_cifrado && !!row?.pareada,
+        modo: s?.modo ?? null,
+        testado: s?.testado ?? false,
+        rotinaAtiva: process.env.WHATSAPP_BAILEYS_AUTOMATIC_ENABLED === 'true',
         ultimoTeste: row?.ultimo_teste ?? null,
         destinatarioTeste: /^55[1-9]\d{9,10}$/.test(numero) ? '+' + numero : null,
     };
@@ -93,7 +97,7 @@ export async function iniciarBaileys(e: EscopoBaileys, modo: 'DEMO' | 'ROTINA' =
         this.whereNull('lease_id').orWhere('lease_ate', '<', db.fn.now());
     }).update({ lease_id: lease, lease_ate: new Date(Date.now() + tempoSessao + 60_000) });
     if (!reservado) throw erro('Sessão ocupada. Aguarde alguns minutos.', 409, 'BAILEYS_SESSAO_OCUPADA');
-    const s: Sessao = { modo, lease, escopo: e, socket: null, status: 'CONECTANDO', qr: null, timer: null,
+    const s: Sessao = { modo, lease, escopo: e, socket: null, status: 'CONECTANDO', qr: null, qrVersao: 0, timer: null,
         gravacao: Promise.resolve(), encerrando: false, enviando: false, testado: false };
     sessoes.set(id(e), s);
     s.timer = setTimeout(() => encerrarSeguro(s), tempoSessao);
@@ -109,7 +113,7 @@ export async function iniciarBaileys(e: EscopoBaileys, modo: 'DEMO' | 'ROTINA' =
             const cifra = cifrarEstadoBaileys(JSON.stringify(estado, BufferJSON.replacer), id(e), chave);
             s.gravacao = s.gravacao.then(async () => {
                 const n = await consulta(e).where('lease_id', lease).where('lease_ate', '>', db.fn.now())
-                    .update({ estado_cifrado: cifra });
+                    .update({ estado_cifrado: cifra, pareada: Boolean(estado.creds.registered) });
                 if (!n) throw new Error('LEASE_PERDIDO');
             });
             void s.gravacao.catch(() => encerrarSeguro(s));
@@ -125,7 +129,7 @@ export async function iniciarBaileys(e: EscopoBaileys, modo: 'DEMO' | 'ROTINA' =
                         const value = estado.keys[type]?.[key];
                         if (value != null) {
                             result[key] = (type === 'app-state-sync-key'
-                                ? proto.Message.AppStateSyncKeyData.fromObject(value as object)
+                                ? proto.Message.AppStateSyncKeyData.fromObject(value as Record<string, unknown>)
                                 : value) as SignalDataTypeMap[T];
                         }
                     }
@@ -157,8 +161,10 @@ export async function iniciarBaileys(e: EscopoBaileys, modo: 'DEMO' | 'ROTINA' =
                     if (modo === 'ROTINA') { encerrarSeguro(s); return; }
                     s.status = 'QR_CODE';
                     const qr = u.qr;
+                    const versao = ++s.qrVersao;
+                    s.qr = null;
                     void QRCode.toDataURL(qr, { margin: 2, width: 280 }).then((imagem) => {
-                        if (s.socket === socket && !s.encerrando && s.status === 'QR_CODE') s.qr = imagem;
+                        if (s.socket === socket && !s.encerrando && s.status === 'QR_CODE' && versao === s.qrVersao) s.qr = imagem;
                     }).catch(() => encerrarSeguro(s));
                 }
                 if (u.connection === 'open') {
@@ -205,6 +211,7 @@ export async function testarBaileys(e: EscopoBaileys) {
         const msg = await s.socket.sendMessage(numero + '@s.whatsapp.net', {
             text: 'Olá! Esta é uma mensagem de demonstração do sistema de controle de mensalidades.',
         });
+        await s.gravacao;
         if (!msg?.key?.id) throw new Error('RESULTADO_INCERTO');
         await consulta(e).where('lease_id', s.lease).update({ ultimo_teste: 'SUBMETIDO' });
         return { status: 'SUBMETIDO' };
@@ -225,7 +232,7 @@ export async function esquecerBaileys(e: EscopoBaileys) {
     if (sessoes.has(id(e))) throw erro('Encerre a conexão antes de apagar a sessão.', 409, 'BAILEYS_SESSAO_OCUPADA');
     const n = await consulta(e).where(function () {
         this.whereNull('lease_id').orWhere('lease_ate', '<', db.fn.now());
-    }).update({ estado_cifrado: null, lease_id: null, lease_ate: null });
+    }).update({ estado_cifrado: null, pareada: false, lease_id: null, lease_ate: null });
     if (!n && await consulta(e).first('lease_id')) throw erro('Sessão ocupada.', 409, 'BAILEYS_SESSAO_OCUPADA');
     return statusBaileys(e);
 }
