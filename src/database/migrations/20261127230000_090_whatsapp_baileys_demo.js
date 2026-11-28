@@ -7,6 +7,7 @@ export async function up(knex) {
         adicionarFk(table, 'area_negocio_id', 'areas_negocio');
         table.primary(['organizacao_id', 'area_negocio_id']);
         table.text('estado_cifrado');
+        table.boolean('pareada').notNullable().defaultTo(false);
         table.uuid('lease_id');
         table.timestamp('lease_ate', { useTz: true });
         table.string('ultimo_teste', 30);
